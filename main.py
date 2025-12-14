@@ -71,7 +71,7 @@ def kasi_get_jieqi(year: str, service_key: str):
     url = f"{KASI_BASE_SPCDE}/get24DivisionsInfo"
     params = {
         "serviceKey": service_key,
-        "solYear": year,
+        "solYear": int(year),
         "numOfRows": 50,
         "pageNo": 1,
     }
