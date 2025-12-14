@@ -12,9 +12,6 @@ from xml.etree import ElementTree as ET
 # Config
 # =========================
 KASI_SERVICE_KEY = os.getenv("KASI_SERVICE_KEY", "").strip()
-if not KASI_SERVICE_KEY:
-    # 서버는 떠도, 호출 시점에 명확히 에러를 내도록 처리
-    pass
 
 KASI_LUNAR_BASE = "https://apis.data.go.kr/B090041/openapi/service/LrsrCldInfoService"
 KASI_SPCDE_BASE = "https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService"
@@ -34,12 +31,15 @@ def _ym(date_obj: dt.date) -> Tuple[str, str]:
 
 
 def _prev_month(date_obj: dt.date) -> dt.date:
-    # return date in previous month (same day if possible; fallback to last day)
-    first = date_obj.replace(day=1)
-    prev_last = first - dt.timedelta(days=1)
-    # keep day within prev month range
-    day = min(date_obj.day, (prev_last.replace(day=1) + dt.timedelta(days=32)).replace(day=1) - dt.timedelta(days=1)).day
-    return prev_last.replace(day=day)
+    """
+    Return a date in the previous month.
+    If the same day doesn't exist (e.g., Mar 31 -> Feb 28/29),
+    clamp to the last day of the previous month.
+    """
+    first_this_month = date_obj.replace(day=1)
+    last_prev_month = first_this_month - dt.timedelta(days=1)
+    day = min(date_obj.day, last_prev_month.day)
+    return last_prev_month.replace(day=day)
 
 
 def _parse_xml_items(xml_text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
@@ -73,15 +73,22 @@ def _parse_xml_items(xml_text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]
     meta = {
         "resultCode": result_code,
         "resultMsg": result_msg,
-        "totalCount": int(total_count) if total_count.isdigit() else total_count,
-        "pageNo": int(page_no) if page_no.isdigit() else page_no,
-        "numOfRows": int(num_rows) if num_rows.isdigit() else num_rows,
+        "totalCount": int(total_count) if str(total_count).isdigit() else total_count,
+        "pageNo": int(page_no) if str(page_no).isdigit() else page_no,
+        "numOfRows": int(num_rows) if str(num_rows).isdigit() else num_rows,
     }
     return meta, items
 
 
 def _kasi_get(url: str, params: Dict[str, Any]) -> Tuple[str, Dict[str, Any], List[Dict[str, Any]]]:
-    # KASI는 ServiceKey 파라미터명을 자주 씀(대문자).
+    """
+    KASI 호출 헬퍼.
+    - ServiceKey(대문자)로 고정
+    - resultCode != 00 이면 502로 에러 처리
+    """
+    if not KASI_SERVICE_KEY:
+        raise HTTPException(status_code=500, detail="KASI_SERVICE_KEY is not set in environment variables")
+
     params = dict(params)
     params["ServiceKey"] = KASI_SERVICE_KEY
 
@@ -90,11 +97,9 @@ def _kasi_get(url: str, params: Dict[str, Any]) -> Tuple[str, Dict[str, Any], Li
     except requests.RequestException as e:
         raise HTTPException(status_code=502, detail=f"KASI request error: {e}")
 
-    # KASI는 200이어도 내부에 오류가 들어올 수 있으니 XML 파싱 후 resultCode 확인
     xml_text = r.text
     meta, items = _parse_xml_items(xml_text)
 
-    # resultCode가 00이 아니면 에러 취급
     if meta.get("resultCode") and meta["resultCode"] != "00":
         raise HTTPException(
             status_code=502,
@@ -107,6 +112,7 @@ def _kasi_get(url: str, params: Dict[str, Any]) -> Tuple[str, Dict[str, Any], Li
                 "raw": xml_text[:1200],
             },
         )
+
     return xml_text, meta, items
 
 
@@ -120,7 +126,6 @@ def _normalize_calendar(value: str) -> str:
 
 
 def _parse_birth(birth: str) -> dt.date:
-    # accept YYYY-MM-DD or YYYYMMDD
     s = (birth or "").strip()
     if re.fullmatch(r"\d{8}", s):
         return dt.datetime.strptime(s, "%Y%m%d").date()
@@ -131,24 +136,20 @@ def _parse_birth(birth: str) -> dt.date:
 
 def _dedupe_sort_jieqi(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Deduplicate by (locdate, dateName) and sort by locdate ascending
+    Deduplicate by (locdate, dateName) and sort by locdate ascending.
     Expected fields: locdate(YYYYMMDD), dateName, isHoliday, dateKind, seq
     """
     seen = set()
     out = []
     for it in items:
-        loc = it.get("locdate", "").strip()
-        name = it.get("dateName", "").strip()
+        loc = (it.get("locdate") or "").strip()
+        name = (it.get("dateName") or "").strip()
         key = (loc, name)
         if loc and name and key not in seen:
             seen.add(key)
             out.append(it)
 
-    def key_fn(x: Dict[str, Any]):
-        loc = x.get("locdate", "00000000")
-        return loc
-
-    out.sort(key=key_fn)
+    out.sort(key=lambda x: x.get("locdate", "00000000"))
     return out
 
 
@@ -175,7 +176,7 @@ def _safe_month_query_dates(birth_date: dt.date) -> List[dt.date]:
 # =========================
 # FastAPI App
 # =========================
-app = FastAPI(title="Saju API Server", version="1.0.0")
+app = FastAPI(title="Saju API Server", version="1.0.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -188,7 +189,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"ok": True, "service": "saju-api-server", "version": "1.0.0"}
+    return {"ok": True, "service": "saju-api-server", "version": "1.0.1"}
 
 
 @app.get("/health")
@@ -205,14 +206,11 @@ def calc_saju(
     calendar: str = Query("solar", description="solar|lunar"),
     debug: int = Query(0, description="1이면 KASI raw 일부/메타 포함"),
 ):
-    if not KASI_SERVICE_KEY:
-        raise HTTPException(status_code=500, detail="KASI_SERVICE_KEY is not set in environment variables")
-
     birth_date = _parse_birth(birth)
     cal = _normalize_calendar(calendar)
 
     # -------------------------
-    # Step 1) 음양력/윤달/간지(가능 범위) 변환
+    # Step 1) 음양력 변환 / 간지(가능 범위) 확보
     # -------------------------
     lunar_info: Dict[str, Any] = {}
     solar_date: dt.date
@@ -220,6 +218,7 @@ def calc_saju(
     if cal == "solar":
         solar_date = birth_date
         y, m, d = solar_date.strftime("%Y"), solar_date.strftime("%m"), solar_date.strftime("%d")
+
         url = f"{KASI_LUNAR_BASE}/getLunCalInfo"
         raw_xml, meta, items = _kasi_get(
             url,
@@ -231,8 +230,14 @@ def calc_saju(
                 "pageNo": 1,
             },
         )
-        # getLunCalInfo는 items/item 하나가 보통
         item = items[0] if items else {}
+
+        is_leap = (item.get("lunLeapmonth") == "윤") or (item.get("isLeap") in ("true", "Y", "1"))
+
+        lunar_label = item.get("lunarLabel")
+        if not lunar_label and item.get("lunMonth") and item.get("lunDay"):
+            lunar_label = f"{'윤달 ' if item.get('lunLeapmonth') == '윤' else ''}{item.get('lunMonth')}월 {item.get('lunDay')}일"
+
         lunar_info = {
             "result": meta,
             "solar": {"year": y, "month": m, "day": d},
@@ -240,13 +245,9 @@ def calc_saju(
                 "lunYear": item.get("lunYear"),
                 "lunMonth": item.get("lunMonth"),
                 "lunDay": item.get("lunDay"),
-                "isLeap": (item.get("lunLeapmonth") == "윤" or item.get("isLeap") == "true" or item.get("isLeap") == "Y"),
+                "isLeap": bool(is_leap),
                 "lunLeapmonth": item.get("lunLeapmonth"),
-                "lunarLabel": item.get("lunarLabel") or (
-                    f"{'윤달 ' if item.get('lunLeapmonth') == '윤' else ''}{item.get('lunMonth')}월 {item.get('lunDay')}일"
-                    if item.get("lunMonth") and item.get("lunDay")
-                    else None
-                ),
+                "lunarLabel": lunar_label,
             },
             "ganji": {
                 "rawGanji": {
@@ -260,9 +261,9 @@ def calc_saju(
             lunar_info["debugRawXml"] = raw_xml[:1500]
 
     elif cal == "lunar":
-        # 음력 입력이면 양력으로 변환 먼저 필요
-        # birth_date는 '음력 기준 날짜'로 들어왔다고 가정
+        # 음력 입력 → 양력으로 변환 필요
         y, m, d = birth_date.strftime("%Y"), birth_date.strftime("%m"), birth_date.strftime("%d")
+
         url = f"{KASI_LUNAR_BASE}/getSolCalInfo"
         raw_xml, meta, items = _kasi_get(
             url,
@@ -270,19 +271,19 @@ def calc_saju(
                 "lunYear": y,
                 "lunMonth": m,
                 "lunDay": d,
-                # 윤달 여부는 추후 파라미터 확정 필요. 기본은 윤달 아님 처리
                 "lunLeapmonth": "평",
                 "numOfRows": 10,
                 "pageNo": 1,
             },
         )
         item = items[0] if items else {}
-        # KASI 응답에서 solYear/Month/Day가 내려오는 경우가 많음
         sol_y = item.get("solYear")
         sol_m = item.get("solMonth")
         sol_d = item.get("solDay")
+
         if not (sol_y and sol_m and sol_d):
             raise HTTPException(status_code=502, detail="KASI lunar->solar conversion returned empty solar date")
+
         solar_date = dt.datetime.strptime(f"{sol_y}{sol_m}{sol_d}", "%Y%m%d").date()
 
         lunar_info = {
@@ -311,10 +312,11 @@ def calc_saju(
             {
                 "solYear": sol_year,
                 "solMonth": sol_month,  # ✅ 핵심: 월(2자리) 포함
-                "numOfRows": 50,        # ✅ 24절기는 월 2개 내외지만 넉넉히
+                "numOfRows": 50,
                 "pageNo": 1,
             },
         )
+
         all_jieqi_items.extend(items)
 
         if debug:
@@ -330,18 +332,14 @@ def calc_saju(
     jieqi_list = _dedupe_sort_jieqi(all_jieqi_items)
     prev_jieqi = _find_prev_jieqi(jieqi_list, solar_date)
 
-    # -------------------------
-    # Response
-    # -------------------------
     resp: Dict[str, Any] = {
         "input": {"birth": birth, "calendar": cal},
         "solarDate": solar_date.strftime("%Y-%m-%d"),
         "lunarInfo": lunar_info,
         "jieqiList": jieqi_list,
-        "prevJieQi": prev_jieqi,  # ✅ 출생일 기준 직전 절기
+        "prevJieQi": prev_jieqi,
     }
 
-    # 진단 메시지(운영/디버깅에 도움이 되게)
     if not jieqi_list:
         resp["warning"] = "jieqiList is empty. Check KASI key permissions or parameter mismatch."
     if debug:
