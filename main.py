@@ -87,6 +87,11 @@ def kasi_get_jieqi(year: str, service_key: str):
             "name": _get_text(it, "dateName"),
             "date": _get_text(it, "locdate"),  # YYYYMMDD
         })
+    if not out:
+    return {
+        "error": "EMPTY_JIEQI",
+        "raw": r.text[:2000]
+    }
     return out
 
 
