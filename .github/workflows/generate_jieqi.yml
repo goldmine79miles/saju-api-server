@@ -1,0 +1,33 @@
+name: Generate Jieqi Table
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install skyfield jplephem numpy
+
+      - name: Generate jieqi table
+        run: |
+          python tools/generate_jieqi_table.py
+
+      - name: Commit generated json
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add data/jieqi_1900_2100.json
+          git commit -m "Generate jieqi table (1900-2100)" || echo "No changes to commit"
+          git push
