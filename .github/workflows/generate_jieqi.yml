@@ -1,7 +1,7 @@
 name: Generate Jieqi Table
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   build:
