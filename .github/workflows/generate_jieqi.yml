@@ -1,6 +1,6 @@
 name: Generate Jieqi Table
 
-"on":
+on:
   workflow_dispatch:
 
 permissions:
@@ -28,6 +28,6 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add data/jieqi_1900_2100.json
-          git commit -m "Generate jieqi table (1900-2100)" || exit 0
+          git add data/jieqi_1900_2052.json
+          git commit -m "Generate jieqi table (1900-2052)" || exit 0
           git push
