@@ -101,7 +101,7 @@ def main():
     eph = load("de421.bsp")
 
     data = {}
-    for year in range(1900, 2101):
+    for year in range(1900, 2054):
         data[str(year)] = calc_year(ts, eph, year)
 
     out = Path("data/jieqi_1900_2100.json")
