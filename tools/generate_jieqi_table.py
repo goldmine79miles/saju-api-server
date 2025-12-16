@@ -16,19 +16,25 @@ JIEQI_DEF = [
     ("대한", 300), ("입춘", 315), ("우수", 330), ("경칩", 345),
 ]
 
-def sun_lon_deg(ts, eph, t):
+def diff(a, b):
+    return (a - b + 180.0) % 360.0 - 180.0
+
+def sun_lons_deg(ts, eph, times):
+    # ✅ 핵심: Time 배열을 for로 돌리지 않고 “한 번에” 계산(벡터 방식)
     earth = eph["earth"]
     sun = eph["sun"]
-    ast = earth.at(t).observe(sun).apparent()
+    ast = earth.at(times).observe(sun).apparent()
     lon, _, _ = ast.frame_latlon(ecliptic_frame)
-    return lon.degrees % 360.0
+    return (lon.degrees % 360.0)
 
-def diff(a, b):
-    return (a - b + 180) % 360 - 180
+def sun_lon_deg(ts, eph, t):
+    # 단일 Time
+    return float(sun_lons_deg(ts, eph, t).item())
 
-def find_root(ts, eph, t0, t1, target):
+def find_root(ts, eph, t0, t1, target, max_iter=60):
     f0 = diff(sun_lon_deg(ts, eph, t0), target)
     f1 = diff(sun_lon_deg(ts, eph, t1), target)
+
     if f0 == 0:
         return t0
     if f1 == 0:
@@ -37,15 +43,19 @@ def find_root(ts, eph, t0, t1, target):
         return None
 
     a, b = t0, t1
-    for _ in range(50):
-        m = ts.tt_jd((a.tt + b.tt) / 2)
+    fa, fb = f0, f1
+
+    for _ in range(max_iter):
+        m = ts.tt_jd((a.tt + b.tt) / 2.0)
         fm = diff(sun_lon_deg(ts, eph, m), target)
         if abs(fm) < 1e-7:
             return m
-        if f0 * fm > 0:
-            a, f0 = m, fm
+
+        if fa * fm > 0:
+            a, fa = m, fm
         else:
-            b = m
+            b, fb = m, fm
+
     return m
 
 def calc_year(ts, eph, year):
@@ -59,18 +69,20 @@ def calc_year(ts, eph, year):
         cur += dt.timedelta(days=1)
 
     times = ts.from_datetimes(days)
-    lons = [sun_lon_deg(ts, eph, t) for t in times]
+    lons = sun_lons_deg(ts, eph, times)  # numpy array
 
     out = []
     for name, target in JIEQI_DEF:
-        prev = diff(lons[0], target)
+        prev = diff(float(lons[0]), target)
         found = None
-        for i in range(1, len(times)):
-            curd = diff(lons[i], target)
+
+        for i in range(1, len(lons)):
+            curd = diff(float(lons[i]), target)
             if prev * curd < 0:
-                found = find_root(ts, eph, times[i-1], times[i], target)
+                found = find_root(ts, eph, times[i - 1], times[i], target)
                 break
             prev = curd
+
         if not found:
             continue
 
@@ -81,6 +93,7 @@ def calc_year(ts, eph, year):
             "kst": kst.strftime("%H%M"),
             "sunLongitude": target,
         })
+
     return out
 
 def main():
