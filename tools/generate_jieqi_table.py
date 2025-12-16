@@ -83,7 +83,7 @@ def calc_year(ts, eph, year):
                 break
             prev = curd
 
-        if not found:
+        if found is None:
             continue
 
         kst = found.utc_datetime().replace(tzinfo=dt.timezone.utc).astimezone(KST)
