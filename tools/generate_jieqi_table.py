@@ -10,7 +10,7 @@ from skyfield.framelib import ecliptic_frame
 KST = dt.timezone(dt.timedelta(hours=9))
 
 # 24절기(태양 황경 기준) - 15도 간격
-# 사주 기준: 소한부터 시작
+# 사주 기준(A안): 소한부터 시작(24개 고정)
 JIEQI_DEF = [
     ("소한", 285), ("대한", 300), ("입춘", 315), ("우수", 330), ("경칩", 345),
     ("춘분", 0), ("청명", 15), ("곡우", 30), ("입하", 45),
@@ -34,7 +34,7 @@ def sun_lon_deg(eph, t):
 
 def unwrap_lons(lons_mod):
     """
-    0~360 황경 배열을 '시간이 증가할수록 단조 증가'하는 연속 각도로 변환.
+    0~360 황경 배열을 시간 증가에 따라 단조 증가하는 연속 각도로 변환.
     예: 359 -> 1 이면 1에 360을 더해 361로 만든다.
     """
     out = []
@@ -43,39 +43,42 @@ def unwrap_lons(lons_mod):
     out.append(prev)
     for x in lons_mod[1:]:
         x = float(x)
-        if x < prev:  # 래핑(360->0)
+        if x < prev:  # 360->0 래핑
             offset += 360.0
         out.append(x + offset)
         prev = x
     return out
 
-def lon_unwrapped_near(eph, t, ref_u):
+def lon_unwrapped_near_left(eph, t, left_u):
     """
-    단일 시각의 황경(0~360)을 ref_u 근처의 연속 각도로 맞춰 반환.
-    ref_u를 '구간 unwrapped'로 주면, 같은 branch로 안정적으로 붙는다.
+    단일 시각 황경(0~360)을 '구간 왼쪽 unwrapped 값(left_u)' 기준으로 같은 브랜치로 맞춘다.
+    (이게 핵심: 중간 ref 기준으로 하면 브랜치가 튀어서 1978로 점프하는 버그가 생김)
     """
-    lon = sun_lon_deg(eph, t)  # 0~360
-    k = round((ref_u - lon) / 360.0)
+    lon = sun_lon_deg(eph, t)
+    k = round((left_u - lon) / 360.0)
     return lon + 360.0 * k
 
 def bisect_root_in_interval(ts, eph, t0, t1, lon0_u, lon1_u, target_u, max_iter=80):
     """
     t0~t1 구간에서 unwrapped 황경 = target_u 되는 시각을 이분법으로 찾기.
-    - lon0_u, lon1_u 는 이미 계산된 스캔 포인트의 unwrapped 황경(신뢰값)
-    - 중간점 황경만 lon_unwrapped_near로 같은 branch에 붙여 계산
+    - lon0_u, lon1_u: 스캔에서 이미 계산한 신뢰 가능한 unwrapped 값
+    - 중간점만 '왼쪽 값 기준'으로 unwrap 해서 같은 브랜치 유지
     """
-    # 반드시 끼고 있어야 함: lon0 <= target <= lon1
+    if lon1_u < lon0_u:
+        lon1_u = lon0_u
+
+    # 타겟이 구간에 포함되어야 함
     if not (lon0_u <= target_u <= lon1_u):
         return None
 
     a_t, b_t = t0, t1
-    a_lon, b_lon = lon0_u, lon1_u
+    a_lon, b_lon = float(lon0_u), float(lon1_u)
 
-    # 중간점 unwrap 기준은 "현재 구간 중앙 황경"으로 잡으면 안정적
     for _ in range(max_iter):
         m_t = ts.tt_jd((a_t.tt + b_t.tt) / 2.0)
-        ref = (a_lon + b_lon) / 2.0
-        m_lon = lon_unwrapped_near(eph, m_t, ref)
+
+        # ★ 핵심: 왼쪽 값(a_lon) 기준으로 같은 브랜치에 고정
+        m_lon = lon_unwrapped_near_left(eph, m_t, a_lon)
 
         if abs(m_lon - target_u) < 1e-10:
             return m_t
@@ -90,8 +93,9 @@ def bisect_root_in_interval(ts, eph, t0, t1, lon0_u, lon1_u, target_u, max_iter=
 # ====== 연도 계산 ======
 def calc_year(ts, eph, year):
     """
-    사주 기준(A안): '해당 해'를 행정연도(kst.year)로 자르지 않고,
-    스캔 범위(전년도 12/15 ~ 다음해 1/15) 안에서 24절기를 "절기 정의 순서"대로 24개 고정 산출.
+    - 스캔 범위: 전년도 12/15 ~ 다음해 1/15 (연도 경계 커버)
+    - A안(사주 기준): 24절기를 '정의 순서'대로 24개 고정 산출
+    - 중복/이전해 점프 방지: 절기 하나 찾으면 그 이후 구간에서만 다음 절기를 찾음
     """
     start = dt.datetime(year - 1, 12, 15, tzinfo=dt.timezone.utc)
     end   = dt.datetime(year + 1,  1, 15, tzinfo=dt.timezone.utc)
@@ -114,32 +118,31 @@ def calc_year(ts, eph, year):
     lons_u = unwrap_lons(lons_mod)
 
     out = []
+    start_i = 1  # 다음 절기는 여기부터 찾음(중복/점프 방지)
 
     for name, target in JIEQI_DEF:
         found_kst = None
+        found_i = None
 
-        for i in range(1, len(lons_u)):
-            a_u = float(lons_u[i - 1])
-            b_u = float(lons_u[i])
+        for i in range(start_i, len(lons_u)):
+            lon0_u = float(lons_u[i - 1])
+            lon1_u = float(lons_u[i])
+            if lon1_u < lon0_u:
+                lon1_u = lon0_u
 
-            # (방어) 이론상 단조 증가지만 혹시라도…
-            if b_u < a_u:
-                b_u = a_u
-
-            # target + 360*k 가 [a_u, b_u] 안에 들어오는 k를 찾는다
-            k_min = ceil((a_u - target) / 360.0)
-            k_max = floor((b_u - target) / 360.0)
+            # target + 360*k 가 [lon0_u, lon1_u] 안에 들어오는 k 찾기
+            k_min = ceil((lon0_u - target) / 360.0)
+            k_max = floor((lon1_u - target) / 360.0)
             if k_min > k_max:
                 continue
 
             # 보통 한 구간에 하나지만 안전하게 범위 처리
             for k in range(k_min, k_max + 1):
                 target_u = target + 360.0 * k
-
                 rt = bisect_root_in_interval(
                     ts, eph,
                     times[i - 1], times[i],
-                    a_u, b_u,
+                    lon0_u, lon1_u,
                     target_u
                 )
                 if rt is None:
@@ -148,6 +151,7 @@ def calc_year(ts, eph, year):
                 found_kst = rt.utc_datetime().replace(
                     tzinfo=dt.timezone.utc
                 ).astimezone(KST)
+                found_i = i
                 break
 
             if found_kst is not None:
@@ -164,7 +168,11 @@ def calc_year(ts, eph, year):
             "source": "table",
         })
 
-    # 결과는 날짜 순으로 정렬 (사주 기준 흐름만 원하면 이 정렬 제거해도 됨)
+        # 다음 절기는 "현재 찾은 구간 이후"에서만 탐색
+        if found_i is not None:
+            start_i = max(found_i, start_i)
+
+    # 보기 좋게 시간순 정렬
     out.sort(key=lambda x: (x["locdate"], x["kst"]))
     return out
 
@@ -180,9 +188,11 @@ def main():
         data[str(year)] = items
 
         if len(items) != 24:
-            missing = [name for name, _ in JIEQI_DEF if name not in {x["dateName"] for x in items}]
-            print(f"[WARN] {year} -> {len(items)} items, missing={missing}")
-            bad.append(year)
+            names = [x["dateName"] for x in items]
+            missing = [n for n, _ in JIEQI_DEF if n not in set(names)]
+            dups = sorted({n for n in names if names.count(n) > 1})
+            print(f"[WARN] {year} -> {len(items)} items, missing={missing}, dups={dups}")
+            bad.append((year, len(items)))
 
     out = Path("data/jieqi_1900_2052.json")
     out.parent.mkdir(exist_ok=True)
