@@ -1,5 +1,5 @@
 # tools/generate_jieqi_table.py
-# JIEQI_GENERATOR_VERSION=timeline_slice_v3_no_observe_rangeclamp
+# JIEQI_GENERATOR_VERSION=timeline_slice_v4_fast_ipchun_anchor_no_observe
 
 import json
 import math
@@ -18,29 +18,26 @@ START_YEAR = int(os.getenv("JIEQI_START_YEAR", "1900"))
 END_YEAR   = int(os.getenv("JIEQI_END_YEAR", "2052"))  # inclusive
 OUTPUT_PATH = os.getenv("JIEQI_OUTPUT", "data/jieqi_1900_2052.json")
 
-# de421 covers 1899-07-29 through 2053-10-09 (UTC) for Skyfield's segment
-# We add margin so internal computations never approach edges.
+# de421 safe margin (avoid ephemeris edges)
 EPH_MARGIN_DAYS = int(os.getenv("JIEQI_EPH_MARGIN_DAYS", "7"))
 
-# Search resolution (coarse scan step in hours)
-SCAN_STEP_HOURS = int(os.getenv("JIEQI_SCAN_STEP_HOURS", "3"))
+# Speed knobs
+SCAN_STEP_HOURS = int(os.getenv("JIEQI_SCAN_STEP_HOURS", "6"))   # was 3
+BISECT_ITERS    = int(os.getenv("JIEQI_BISECT_ITERS", "30"))     # was 50
 
-# Root find iterations
-BISECT_ITERS = int(os.getenv("JIEQI_BISECT_ITERS", "50"))
+# Window policy (fast)
+# 1) Find Ipchun in a tight window each year
+IPCHUN_SEARCH_START = (2, 1)   # Feb 1
+IPCHUN_SEARCH_END   = (3, 1)   # Mar 1  (exclusive-ish)
+# 2) After Ipchun found, only search events in [ipchun - pad, ipchun + horizon]
+POST_IPCHUN_PAD_DAYS = int(os.getenv("JIEQI_POST_IPCHUN_PAD_DAYS", "2"))
+POST_IPCHUN_HORIZON_DAYS = int(os.getenv("JIEQI_POST_IPCHUN_HORIZON_DAYS", "400"))
 
 KST = timezone(timedelta(hours=9))
 UTC = timezone.utc
 TAU = 2.0 * math.pi
 
-# 24 solar terms (Korean) at 15-degree ecliptic longitude increments
-# Convention: 0° = 춘분, 15° = 청명, ..., 315° = 우수, 330° = 경칩, 345° = 춘분 직전 = "??"
-# In East Asian 24 절기 commonly used mapping:
-# 0   춘분, 15  청명, 30  곡우, 45  입하, 60  소만, 75  망종,
-# 90  하지, 105 소서, 120 대서, 135 입추, 150 처서, 165 백로,
-# 180 추분, 195 한로, 210 상강, 225 입동, 240 소설, 255 대설,
-# 270 동지, 285 소한, 300 대한, 315 입춘, 330 우수, 345 경칩
-#
-# NOTE: Some sources define 0° as 춘분 indeed. This matches typical astronomical definitions.
+# 24 solar terms (Korean) at 15-degree increments
 JIEQI = [
     ("춘분",   0),
     ("청명",  15),
@@ -68,18 +65,10 @@ JIEQI = [
     ("경칩", 345),
 ]
 
-NAME_BY_DEG = {deg: name for name, deg in JIEQI}
-DEG_BY_NAME = {name: deg for name, deg in JIEQI}
 TARGET_RADS = {deg: math.radians(deg) % TAU for _, deg in JIEQI}
 
-
-@dataclass
-class Event:
-    name: str
-    deg: int
-    utc_iso: str
-    kst_iso: str
-    kst_year_for_group: int  # 사주 기준(입춘 기준 슬라이스)용 group year
+IPCHUN_DEG = 315
+IPCHUN_RAD = TARGET_RADS[IPCHUN_DEG]
 
 
 def _dt_utc(y, m, d, hh=0, mm=0, ss=0):
@@ -87,7 +76,7 @@ def _dt_utc(y, m, d, hh=0, mm=0, ss=0):
 
 
 def _to_iso(dt: datetime) -> str:
-    return dt.isoformat().replace("+00:00", "Z")
+    return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _kst_iso(dt_utc: datetime) -> str:
@@ -95,31 +84,20 @@ def _kst_iso(dt_utc: datetime) -> str:
 
 
 def _wrap_diff(a: float, b: float) -> float:
-    """Return signed smallest difference a-b wrapped to (-pi, +pi]."""
+    """Signed smallest difference a-b wrapped to (-pi, +pi]."""
     d = (a - b) % TAU
     if d > math.pi:
         d -= TAU
     return d
 
 
-def sun_ecliptic_lon_rad(eph, t):
+def clamp_range(start_dt: datetime, end_dt: datetime):
     """
-    Geocentric true ecliptic longitude of the Sun (NO observe(), NO light-time).
-    Using vector difference (sun - earth).at(t).
+    Clamp search window inside DE421 safe range with margins.
+    de421 known coverage: 1899-07-29 through 2053-10-09 (UTC)
     """
-    geo = (eph["sun"] - eph["earth"]).at(t)
-    lat, lon, dist = geo.frame_latlon(ecliptic_frame)
-    return np.deg2rad(lon.degrees) % TAU
-
-
-def clamp_range(ts, eph, start_dt: datetime, end_dt: datetime):
-    """
-    Clamp search window inside ephemeris safe range with margins.
-    """
-    # Skyfield ephemeris has segments; but DE421 boundaries are known.
-    # We'll hardcode safe boundaries derived from the known error message range.
-    eph_min = _dt_utc(1899, 7, 29, 0, 0, 0) + timedelta(days=EPH_MARGIN_DAYS)
-    eph_max = _dt_utc(2053, 10, 9, 0, 0, 0) - timedelta(days=EPH_MARGIN_DAYS)
+    eph_min = _dt_utc(1899, 7, 29) + timedelta(days=EPH_MARGIN_DAYS)
+    eph_max = _dt_utc(2053, 10, 9) - timedelta(days=EPH_MARGIN_DAYS)
 
     if start_dt < eph_min:
         start_dt = eph_min
@@ -130,14 +108,24 @@ def clamp_range(ts, eph, start_dt: datetime, end_dt: datetime):
     return start_dt, end_dt
 
 
+def sun_ecliptic_lon_rad(eph, t):
+    """
+    Geocentric ecliptic longitude of the Sun (NO observe(), NO light-time).
+    """
+    geo = (eph["sun"] - eph["earth"]).at(t)
+    lat, lon, dist = geo.frame_latlon(ecliptic_frame)
+    return np.deg2rad(lon.degrees) % TAU
+
+
 def find_crossings_for_deg(ts, eph, target_rad: float, start_dt: datetime, end_dt: datetime):
     """
-    Find times when Sun ecliptic longitude crosses target_rad within [start_dt, end_dt).
-    Coarse scan + bisection on sign change of wrapped difference.
+    Coarse scan + bisection on sign change of wrapped diff.
+    Returns list of UTC datetimes.
     """
     step = timedelta(hours=SCAN_STEP_HOURS)
 
-    # build coarse times list
+    start_dt, end_dt = clamp_range(start_dt, end_dt)
+
     dts = []
     cur = start_dt
     while cur < end_dt:
@@ -148,8 +136,6 @@ def find_crossings_for_deg(ts, eph, target_rad: float, start_dt: datetime, end_d
 
     times = ts.from_datetimes(dts)
     lons = sun_ecliptic_lon_rad(eph, times)
-
-    # signed diff to target in (-pi, pi]
     diffs = np.array([_wrap_diff(float(lon), target_rad) for lon in lons], dtype=np.float64)
 
     hits = []
@@ -157,52 +143,75 @@ def find_crossings_for_deg(ts, eph, target_rad: float, start_dt: datetime, end_d
         d0 = diffs[i]
         d1 = diffs[i + 1]
 
-        # exact hit (rare)
         if d0 == 0.0:
             hits.append(dts[i])
             continue
 
-        # sign change indicates crossing
         if (d0 < 0 and d1 > 0) or (d0 > 0 and d1 < 0):
             t0 = dts[i]
             t1 = dts[i + 1]
-            # bisection on scalar time
+
+            # bisection (scalar)
             for _ in range(BISECT_ITERS):
                 mid = t0 + (t1 - t0) / 2
                 lon_mid = float(sun_ecliptic_lon_rad(eph, ts.from_datetime(mid)))
                 d_mid = _wrap_diff(lon_mid, target_rad)
+
                 if d_mid == 0.0:
                     t0 = t1 = mid
                     break
-                # keep interval that contains sign change
-                # evaluate at t0
+
                 lon_t0 = float(sun_ecliptic_lon_rad(eph, ts.from_datetime(t0)))
                 d_t0 = _wrap_diff(lon_t0, target_rad)
+
                 if (d_t0 < 0 and d_mid > 0) or (d_t0 > 0 and d_mid < 0):
                     t1 = mid
                 else:
                     t0 = mid
+
             hits.append(t0 + (t1 - t0) / 2)
 
-    return hits
+    # normalize seconds precision
+    out = []
+    for dt_hit in hits:
+        out.append(dt_hit.replace(microsecond=0))
+    return out
 
 
-def collect_events_timeline(ts, eph, year: int):
+def find_ipchun_for_year(ts, eph, year: int):
     """
-    Collect events across a 2-year window around 'year', then slice by 입춘 to produce year-based 24 terms.
-    Strategy:
-      - Window: [year-1-03-01, year+1+03-01) (wide enough)
-      - Clamp to ephemeris safe range
-      - Find all crossings for all 24 targets
-      - Deduplicate by KST timestamp string
-      - Sort by UTC time
-      - Then create year->24 slice using Ipchun (입춘, 315°)
+    Find Ipchun (315°) for target year using tight window around early Feb.
+    Choose the first hit whose KST year == year (safety).
     """
-    # wide scan window to avoid missing boundary terms
-    start_dt = _dt_utc(year - 1, 3, 1)
-    end_dt   = _dt_utc(year + 1, 3, 1)
+    s_m, s_d = IPCHUN_SEARCH_START
+    e_m, e_d = IPCHUN_SEARCH_END
 
-    start_dt, end_dt = clamp_range(ts, eph, start_dt, end_dt)
+    start_dt = _dt_utc(year, s_m, s_d)
+    end_dt   = _dt_utc(year, e_m, e_d)
+
+    hits = find_crossings_for_deg(ts, eph, IPCHUN_RAD, start_dt, end_dt)
+
+    # pick hit that matches KST year
+    for h in hits:
+        if h.astimezone(KST).year == year:
+            return h
+
+    # fallback: if only one hit exists, return it
+    if len(hits) == 1:
+        return hits[0]
+
+    return None
+
+
+def build_year_events_from_ipchun(ts, eph, ipchun_dt_utc: datetime):
+    """
+    After ipchun, search only small window: [ipchun - pad, ipchun + horizon]
+    Collect all 24 term crossings in that window.
+    """
+    start_dt = ipchun_dt_utc - timedelta(days=POST_IPCHUN_PAD_DAYS)
+    end_dt   = ipchun_dt_utc + timedelta(days=POST_IPCHUN_HORIZON_DAYS)
+
+    start_dt, end_dt = clamp_range(start_dt, end_dt)
 
     raw = []
     for name, deg in JIEQI:
@@ -210,68 +219,65 @@ def collect_events_timeline(ts, eph, year: int):
         for dt_hit in hits:
             raw.append((dt_hit, name, deg))
 
-    # sort
+    # sort by time
     raw.sort(key=lambda x: x[0])
 
-    # dedupe by KST timestamp string (seconds precision)
+    # dedupe exact duplicates (time+deg)
     seen = set()
     dedup = []
     for dt_hit, name, deg in raw:
-        kst = dt_hit.astimezone(KST).replace(microsecond=0)
-        key = (kst.isoformat(), deg)
-        # allow same moment different deg? should not happen; but we also guard with deg
+        key = (dt_hit.isoformat(), deg)
         if key in seen:
             continue
         seen.add(key)
-        dedup.append((dt_hit.replace(microsecond=0), name, deg))
+        dedup.append((dt_hit, name, deg))
 
     return dedup
 
 
-def slice_24_from_ipchun(events, target_year: int):
+def slice_24_from_ipchun(events, ipchun_dt_utc: datetime):
     """
-    From timeline events list (sorted), pick 24 consecutive terms starting at the Ipchun(입춘) that belongs to target_year.
-    Rule:
-      - Find 입춘 events (deg=315) whose KST year == target_year
-      - Take that idx as start, then take next 24 events (including 입춘)
+    In the events list, find the ipchun nearest to ipchun_dt_utc (same deg),
+    then take 24 consecutive events starting there.
     """
-    ipchun_deg = 315
-
-    idx = None
+    # find index of ipchun event closest to anchor
+    best_i = None
+    best_abs = None
     for i, (dt_utc, name, deg) in enumerate(events):
-        if deg != ipchun_deg:
+        if deg != IPCHUN_DEG:
             continue
-        kst_year = dt_utc.astimezone(KST).year
-        if kst_year == target_year:
-            idx = i
-            break
+        delta = abs((dt_utc - ipchun_dt_utc).total_seconds())
+        if best_abs is None or delta < best_abs:
+            best_abs = delta
+            best_i = i
 
-    if idx is None:
+    if best_i is None:
         return None
 
-    slice_events = events[idx: idx + 24]
-    if len(slice_events) != 24:
+    sliced = events[best_i: best_i + 24]
+    if len(sliced) != 24:
         return None
 
-    # validate uniqueness of deg in slice (should be exactly 24 distinct)
-    degs = [deg for _, _, deg in slice_events]
+    degs = [deg for _, _, deg in sliced]
     if len(set(degs)) != 24:
         return None
 
-    # enforce order exactly as time order (already)
     out = []
-    for dt_utc, name, deg in slice_events:
+    for dt_utc, name, deg in sliced:
         out.append({
             "name": name,
             "deg": deg,
-            "utc": _to_iso(dt_utc.astimezone(UTC)),
-            "kst": _kst_iso(dt_utc.astimezone(UTC)),
+            "utc": _to_iso(dt_utc),
+            "kst": _kst_iso(dt_utc),
         })
+
+    # sort by kst (should already be)
+    out.sort(key=lambda x: x["kst"])
     return out
 
 
 def generate():
-    print("JIEQI_GENERATOR_VERSION=timeline_slice_v3_no_observe_rangeclamp")
+    print("JIEQI_GENERATOR_VERSION=timeline_slice_v4_fast_ipchun_anchor_no_observe")
     ts = load.timescale()
     eph = load("de421.bsp")
 
@@ -279,31 +285,30 @@ def generate():
     bad_years = []
 
     for y in range(START_YEAR, END_YEAR + 1):
-        timeline = collect_events_timeline(ts, eph, y)
-        sliced = slice_24_from_ipchun(timeline, y)
-
-        if sliced is None:
+        ipchun = find_ipchun_for_year(ts, eph, y)
+        if ipchun is None:
             bad_years.append(y)
-            print(f"[WARN] {y} -> slice failed (timeline={len(timeline)})")
-            # still store empty so keys exist
+            print(f"[WARN] {y} -> ipchun not found")
             result[str(y)] = []
             continue
 
-        # final sanity: sort by kst
-        sliced.sort(key=lambda x: x["kst"])
-        result[str(y)] = sliced
+        events = build_year_events_from_ipchun(ts, eph, ipchun)
+        sliced = slice_24_from_ipchun(events, ipchun)
 
-        if len(sliced) != 24:
+        if sliced is None or len(sliced) != 24:
             bad_years.append(y)
-            print(f"[WARN] {y} -> {len(sliced)} items (expected 24)")
+            print(f"[WARN] {y} -> slice failed (events={len(events)})")
+            result[str(y)] = []
+            continue
+
+        result[str(y)] = sliced
 
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
     if bad_years:
-        print(f"[SUMMARY] bad_years_count={len(bad_years)}")
-        # fail the action so you notice
+        print(f"[SUMMARY] bad_years_count={len(bad_years)} years={bad_years[:20]}{'...' if len(bad_years)>20 else ''}")
         raise SystemExit(1)
 
     print("[OK] all years have 24 items")
