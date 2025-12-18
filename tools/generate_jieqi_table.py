@@ -187,8 +187,12 @@ def main():
 
     for year in range(START_YEAR, END_YEAR + 1):
         # 2년+α 윈도우 (입춘 기준 24개를 안정적으로 자르기 위함)
-        start = dt.datetime(year - 1, 1, 1, tzinfo=dt.timezone.utc)
-        end   = dt.datetime(year + 1, 12, 31, tzinfo=dt.timezone.utc)
+        # de421 커버 범위 클램프
+        MIN_UTC = dt.datetime(1899, 7, 29, tzinfo=dt.timezone.utc)
+        MAX_UTC = dt.datetime(2053, 10, 9, tzinfo=dt.timezone.utc)
+
+        start = max(dt.datetime(year - 1, 1, 1, tzinfo=dt.timezone.utc), MIN_UTC)
+        end   = min(dt.datetime(year + 1, 12, 31, tzinfo=dt.timezone.utc), MAX_UTC)
 
         events = collect_events(ts, eph, start, end, step_hours=12)
         items = build_year_24(events, year)
