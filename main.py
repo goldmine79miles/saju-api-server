@@ -8,7 +8,7 @@ import os
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.2.0"  # day pillar added
+    version="1.3.0"  # year pillar added
 )
 
 # =========================
@@ -218,7 +218,7 @@ def resolve_saju_year(birth_dt_kst: datetime, birth_year_jieqi_list: list) -> in
     return y if birth_dt_kst >= ipchun_dt else y - 1
 
 # =========================
-# Core (Day Pillar)
+# Core (Pillars)
 # =========================
 
 STEMS = ["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"]
@@ -251,6 +251,23 @@ def get_day_pillar(local_date: date):
         "index60": day_index
     }
 
+def get_year_pillar(saju_year: int):
+    """
+    연주(연간/연지) 계산 (간지 코드만)
+    기준:
+      - 1984년 = 甲子년
+      - index60 = (saju_year - 1984) mod 60
+    """
+    index60 = (saju_year - 1984) % 60
+    stem = STEMS[index60 % 10]
+    branch = BRANCHES[index60 % 12]
+    return {
+        "stem": stem,
+        "branch": branch,
+        "ganji": stem + branch,
+        "index60": index60
+    }
+
 # =========================
 # API
 # =========================
@@ -276,7 +293,7 @@ def calc_saju(
         # 1) 출생 datetime (KST) + 시간 적용 여부
         birth_dt, time_applied = parse_birth_dt_kst(birth, birth_time)
 
-        # 2) 출생 '행정연도' 절기 가져오기 (입춘 비교는 출생연도 입춘으로 판정)
+        # 2) 출생 '행정연도' 절기 가져오기
         birth_year = str(birth_dt.year)
         source, fallback, jieqi_list = get_jieqi_with_fallback(birth_year)
 
@@ -287,6 +304,9 @@ def calc_saju(
         # 4) ✅ 일주 계산 (로컬 날짜 기준)
         day_pillar = get_day_pillar(birth_dt.date())
 
+        # 5) ✅ 연주 계산 (입춘 기준 사주연도 기준)
+        year_pillar = get_year_pillar(saju_year)
+
         return {
             "input": {
                 "birth": birth,
@@ -295,6 +315,7 @@ def calc_saju(
                 "gender": gender
             },
             "pillars": {
+                "year": year_pillar,
                 "day": day_pillar
             },
             "jieqi": {
@@ -311,7 +332,8 @@ def calc_saju(
                 "year_rule": "ipchun_boundary",
                 "time_policy": "optional",
                 "time_applied": time_applied,
-                "day_rule": "gregorian_jdn_offset47"
+                "day_rule": "gregorian_jdn_offset47",
+                "year_rule2": "base1984_gapja"
             }
         }
 
