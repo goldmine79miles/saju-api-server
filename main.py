@@ -29,19 +29,12 @@ def load_jieqi_table():
         return json.load(f)
 
 def _parse_dt_any(value):
-    """
-    Jieqi JSON datetime value 파싱:
-    - ISO: "1979-02-04T19:04:05+09:00", "1979-02-04T10:04:05Z"
-    - date: "1979-02-04"
-    - epoch: 1234567890 / 1234567890123
-    """
     if value is None:
         return None
 
-    # epoch number
     if isinstance(value, (int, float)):
         v = float(value)
-        if v >= 1_000_000_000_000:  # ms
+        if v >= 1_000_000_000_000:
             v = v / 1000.0
         return datetime.fromtimestamp(v, tz=KST)
 
@@ -49,12 +42,8 @@ def _parse_dt_any(value):
         s = value.strip()
         if not s:
             return None
-
-        # Z -> +00:00
         if s.endswith("Z"):
             s = s[:-1] + "+00:00"
-
-        # ISO
         try:
             dt = datetime.fromisoformat(s)
             if dt.tzinfo is None:
@@ -64,8 +53,6 @@ def _parse_dt_any(value):
             return dt
         except Exception:
             pass
-
-        # date only
         try:
             return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=KST)
         except Exception:
@@ -74,10 +61,6 @@ def _parse_dt_any(value):
     return None
 
 def find_ipchun_dt(jieqi_list):
-    """
-    해당 연도 절기 리스트에서 '입춘(立春)' 시각을 찾아 KST datetime으로 반환.
-    ✅ 네 JSON 스키마: { name, deg, utc, kst } 형태를 우선 지원.
-    """
     if not isinstance(jieqi_list, list):
         raise ValueError("jieqi_list is not a list")
 
@@ -101,7 +84,6 @@ def find_ipchun_dt(jieqi_list):
             return True
         return False
 
-    # ✅ dt 키 후보에 kst/utc 추가, kst 우선
     dt_keys_priority = ["kst", "utc", "dt", "datetime", "time", "at", "iso", "when", "timestamp", "ts"]
 
     for item in jieqi_list:
@@ -110,14 +92,12 @@ def find_ipchun_dt(jieqi_list):
         if not _is_ipchun(item):
             continue
 
-        # 1) 우선순위 키에서 바로 찾기
         for k in dt_keys_priority:
             if k in item:
                 dt = _parse_dt_any(item.get(k))
                 if dt:
                     return dt
 
-        # 2) 중첩 dict도 지원 (혹시 모를 케이스)
         for _, v in item.items():
             if isinstance(v, dict):
                 for kk in dt_keys_priority:
@@ -128,33 +108,44 @@ def find_ipchun_dt(jieqi_list):
 
     raise ValueError("입춘(立春) datetime not found in jieqi table")
 
+def normalize_birth_time(birth_time: str):
+    """
+    A안 정책: 시간은 optional.
+    - unknown/빈값/형식오류 => time_applied False
+    - 정상(HH:MM) => time_applied True
+    """
+    if not isinstance(birth_time, str):
+        return None, False
+    s = birth_time.strip()
+    if not s or s.lower() == "unknown":
+        return None, False
+    try:
+        t = datetime.strptime(s, "%H:%M")
+        return (t.hour, t.minute), True
+    except Exception:
+        return None, False
+
 def parse_birth_dt_kst(birth: str, birth_time: str):
     """
-    birth(YYYY-MM-DD) + birth_time(HH:MM or 'unknown') -> KST aware datetime
-    정책:
-      - birth_time이 unknown/비정상일 경우 00:00 처리
+    A안 정책:
+    - time_applied=False면 시각은 00:00으로 내부 처리하되,
+      meta에 time_applied를 명확히 남긴다.
     """
     base_date = datetime.strptime(birth, "%Y-%m-%d")
+    (hm, time_applied) = normalize_birth_time(birth_time)
 
-    hh, mm = 0, 0
-    if isinstance(birth_time, str) and birth_time != "unknown":
-        try:
-            t = datetime.strptime(birth_time, "%H:%M")
-            hh, mm = t.hour, t.minute
-        except Exception:
-            hh, mm = 0, 0
+    hh, mm = (0, 0)
+    if hm is not None:
+        hh, mm = hm
 
-    return datetime(base_date.year, base_date.month, base_date.day, hh, mm, tzinfo=KST)
+    dt = datetime(base_date.year, base_date.month, base_date.day, hh, mm, tzinfo=KST)
+    return dt, time_applied
 
 # =========================
 # KASI (optional, fallback-safe)
 # =========================
 
 def fetch_jieqi_from_kasi(year: int):
-    """
-    KASI가 살아있는지 확인만 하는 용도.
-    실패하면 예외를 던져 fallback으로 전환된다.
-    """
     if not KASI_SERVICE_KEY:
         raise RuntimeError("KASI key missing")
 
@@ -177,10 +168,6 @@ def fetch_jieqi_from_kasi(year: int):
 # =========================
 
 def get_jieqi_with_fallback(year: str):
-    """
-    1) KASI 먼저 시도
-    2) 실패하면 JSON 절기 테이블 사용
-    """
     source = "json"
     fallback = True
 
@@ -201,11 +188,6 @@ def get_jieqi_with_fallback(year: str):
     return source, fallback, year_data
 
 def resolve_saju_year(birth_dt_kst: datetime, birth_year_jieqi_list: list) -> int:
-    """
-    입춘 기준 사주 연도:
-      - 출생일시 < 해당 해 입춘 시각 -> birth_year - 1
-      - 출생일시 >= 해당 해 입춘 시각 -> birth_year
-    """
     ipchun_dt = find_ipchun_dt(birth_year_jieqi_list)
     y = birth_dt_kst.year
     return y if birth_dt_kst >= ipchun_dt else y - 1
@@ -222,8 +204,8 @@ def health():
 def calc_saju(
     birth: str = Query(..., description="YYYY-MM-DD"),
     calendar: str = Query("solar", description="solar or lunar"),
-    birth_time: str = Query("unknown", description="HH:MM (e.g. 10:00)"),
-    gender: str = Query("unknown", description="male or female"),
+    birth_time: str = Query("unknown", description="HH:MM (optional)"),
+    gender: str = Query("unknown", description="male or female (optional)"),
 ):
     try:
         if gender not in ("male", "female", "unknown"):
@@ -232,14 +214,14 @@ def calc_saju(
                 content={"error": "gender must be male or female"}
             )
 
-        # 1) 출생 datetime (KST)
-        birth_dt = parse_birth_dt_kst(birth, birth_time)
+        # 1) 출생 datetime (KST) + 시간 적용 여부
+        birth_dt, time_applied = parse_birth_dt_kst(birth, birth_time)
 
-        # 2) 출생 '행정연도' 절기 가져오기 (입춘 비교는 출생연도 입춘으로 판정)
+        # 2) 출생 '행정연도' 절기 가져오기
         birth_year = str(birth_dt.year)
         source, fallback, jieqi_list = get_jieqi_with_fallback(birth_year)
 
-        # 3) 사주연도 계산
+        # 3) 입춘 기준 사주연도 계산
         saju_year = resolve_saju_year(birth_dt, jieqi_list)
         ipchun_dt = find_ipchun_dt(jieqi_list)
 
@@ -261,7 +243,9 @@ def calc_saju(
                 "birth_dt_kst": birth_dt.isoformat(),
                 "ipchun_dt_kst": ipchun_dt.isoformat(),
                 "saju_year": saju_year,
-                "year_rule": "ipchun_boundary"
+                "year_rule": "ipchun_boundary",
+                "time_policy": "optional",
+                "time_applied": time_applied
             }
         }
 
