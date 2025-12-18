@@ -30,10 +30,10 @@ def load_jieqi_table():
 
 def _parse_dt_any(value):
     """
-    Jieqi JSON에 들어있는 datetime 값을 최대한 안전하게 파싱.
-    - ISO 문자열: "1979-02-04T11:23:00+09:00", "1979-02-04T02:23:00Z" 등
-    - 날짜만: "1979-02-04"
-    - epoch(sec/ms): 1234567890 / 1234567890123
+    Jieqi JSON datetime value 파싱:
+    - ISO: "1979-02-04T19:04:05+09:00", "1979-02-04T10:04:05Z"
+    - date: "1979-02-04"
+    - epoch: 1234567890 / 1234567890123
     """
     if value is None:
         return None
@@ -41,23 +41,20 @@ def _parse_dt_any(value):
     # epoch number
     if isinstance(value, (int, float)):
         v = float(value)
-        # ms 판단(대충 1e12 이상)
-        if v >= 1_000_000_000_000:
+        if v >= 1_000_000_000_000:  # ms
             v = v / 1000.0
-        dt = datetime.fromtimestamp(v, tz=KST)
-        return dt
+        return datetime.fromtimestamp(v, tz=KST)
 
-    # string
     if isinstance(value, str):
         s = value.strip()
         if not s:
             return None
 
-        # "Z" 처리
+        # Z -> +00:00
         if s.endswith("Z"):
             s = s[:-1] + "+00:00"
 
-        # ISO datetime
+        # ISO
         try:
             dt = datetime.fromisoformat(s)
             if dt.tzinfo is None:
@@ -70,8 +67,7 @@ def _parse_dt_any(value):
 
         # date only
         try:
-            dt = datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=KST)
-            return dt
+            return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=KST)
         except Exception:
             return None
 
@@ -80,14 +76,12 @@ def _parse_dt_any(value):
 def find_ipchun_dt(jieqi_list):
     """
     해당 연도 절기 리스트에서 '입춘(立春)' 시각을 찾아 KST datetime으로 반환.
-    JSON 스키마 변동을 고려해 다양한 키/형태를 커버.
+    ✅ 네 JSON 스키마: { name, deg, utc, kst } 형태를 우선 지원.
     """
     if not isinstance(jieqi_list, list):
         raise ValueError("jieqi_list is not a list")
 
-    # 입춘 이름 매칭 후보
     def _is_ipchun(item):
-        # 다양한 필드명 대응
         candidates = [
             item.get("name"),
             item.get("label"),
@@ -99,7 +93,6 @@ def find_ipchun_dt(jieqi_list):
         candidates = [c for c in candidates if isinstance(c, str)]
         joined = " ".join(candidates)
 
-        # 포함/동일 매칭
         if "입춘" in joined:
             return True
         if "立春" in joined:
@@ -108,8 +101,8 @@ def find_ipchun_dt(jieqi_list):
             return True
         return False
 
-    # datetime 필드 후보
-    dt_keys = ["dt", "datetime", "time", "at", "iso", "when", "timestamp", "ts"]
+    # ✅ dt 키 후보에 kst/utc 추가, kst 우선
+    dt_keys_priority = ["kst", "utc", "dt", "datetime", "time", "at", "iso", "when", "timestamp", "ts"]
 
     for item in jieqi_list:
         if not isinstance(item, dict):
@@ -117,17 +110,17 @@ def find_ipchun_dt(jieqi_list):
         if not _is_ipchun(item):
             continue
 
-        # 1) 직접 dt 키들에서 파싱
-        for k in dt_keys:
+        # 1) 우선순위 키에서 바로 찾기
+        for k in dt_keys_priority:
             if k in item:
                 dt = _parse_dt_any(item.get(k))
                 if dt:
                     return dt
 
-        # 2) 중첩 구조 대응: item["date"]["dt"] 같은 경우
-        for k, v in item.items():
+        # 2) 중첩 dict도 지원 (혹시 모를 케이스)
+        for _, v in item.items():
             if isinstance(v, dict):
-                for kk in dt_keys:
+                for kk in dt_keys_priority:
                     if kk in v:
                         dt = _parse_dt_any(v.get(kk))
                         if dt:
@@ -139,7 +132,7 @@ def parse_birth_dt_kst(birth: str, birth_time: str):
     """
     birth(YYYY-MM-DD) + birth_time(HH:MM or 'unknown') -> KST aware datetime
     정책:
-      - birth_time이 unknown/비정상일 경우 00:00으로 처리
+      - birth_time이 unknown/비정상일 경우 00:00 처리
     """
     base_date = datetime.strptime(birth, "%Y-%m-%d")
 
@@ -149,7 +142,6 @@ def parse_birth_dt_kst(birth: str, birth_time: str):
             t = datetime.strptime(birth_time, "%H:%M")
             hh, mm = t.hour, t.minute
         except Exception:
-            # 정책: 시간 형식이 깨져도 서버는 죽지 않는다(00:00 처리)
             hh, mm = 0, 0
 
     return datetime(base_date.year, base_date.month, base_date.day, hh, mm, tzinfo=KST)
@@ -234,7 +226,6 @@ def calc_saju(
     gender: str = Query("unknown", description="male or female"),
 ):
     try:
-        # 기본 검증
         if gender not in ("male", "female", "unknown"):
             return JSONResponse(
                 status_code=400,
@@ -244,13 +235,13 @@ def calc_saju(
         # 1) 출생 datetime (KST)
         birth_dt = parse_birth_dt_kst(birth, birth_time)
 
-        # 2) 행정연도 기준 절기(입춘 비교는 '출생연도'의 입춘으로 판정)
+        # 2) 출생 '행정연도' 절기 가져오기 (입춘 비교는 출생연도 입춘으로 판정)
         birth_year = str(birth_dt.year)
         source, fallback, jieqi_list = get_jieqi_with_fallback(birth_year)
 
-        # 3) 입춘 기준 사주연도 계산 (연주 기준점 고정)
+        # 3) 사주연도 계산
         saju_year = resolve_saju_year(birth_dt, jieqi_list)
-        ipchun_dt = find_ipchun_dt(jieqi_list)  # 메타 제공용
+        ipchun_dt = find_ipchun_dt(jieqi_list)
 
         return {
             "input": {
@@ -260,7 +251,7 @@ def calc_saju(
                 "gender": gender
             },
             "jieqi": {
-                "year": birth_year,            # 절기 조회는 출생 '행정연도' 기준 (월주 계산에도 필요)
+                "year": birth_year,
                 "count": len(jieqi_list),
                 "items": jieqi_list
             },
