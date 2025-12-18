@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
-from datetime import datetime
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
 import requests
 import json
@@ -8,7 +8,7 @@ import os
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.0.0"
+    version="1.2.0"  # day pillar added
 )
 
 # =========================
@@ -29,6 +29,12 @@ def load_jieqi_table():
         return json.load(f)
 
 def _parse_dt_any(value):
+    """
+    Jieqi JSON datetime value 파싱:
+    - ISO: "1979-02-04T19:04:05+09:00", "1979-02-04T10:04:05Z"
+    - date: "1979-02-04"
+    - epoch: 1234567890 / 1234567890123
+    """
     if value is None:
         return None
 
@@ -44,6 +50,7 @@ def _parse_dt_any(value):
             return None
         if s.endswith("Z"):
             s = s[:-1] + "+00:00"
+
         try:
             dt = datetime.fromisoformat(s)
             if dt.tzinfo is None:
@@ -53,6 +60,7 @@ def _parse_dt_any(value):
             return dt
         except Exception:
             pass
+
         try:
             return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=KST)
         except Exception:
@@ -61,6 +69,10 @@ def _parse_dt_any(value):
     return None
 
 def find_ipchun_dt(jieqi_list):
+    """
+    해당 연도 절기 리스트에서 '입춘(立春)' 시각을 찾아 KST datetime으로 반환.
+    ✅ JSON 스키마: { name, deg, utc, kst } 형태 지원 (kst 우선)
+    """
     if not isinstance(jieqi_list, list):
         raise ValueError("jieqi_list is not a list")
 
@@ -146,6 +158,10 @@ def parse_birth_dt_kst(birth: str, birth_time: str):
 # =========================
 
 def fetch_jieqi_from_kasi(year: int):
+    """
+    KASI가 살아있는지 확인만 하는 용도.
+    실패하면 예외를 던져 fallback으로 전환된다.
+    """
     if not KASI_SERVICE_KEY:
         raise RuntimeError("KASI key missing")
 
@@ -164,10 +180,14 @@ def fetch_jieqi_from_kasi(year: int):
     return True
 
 # =========================
-# Core
+# Core (jieqi)
 # =========================
 
 def get_jieqi_with_fallback(year: str):
+    """
+    1) KASI 먼저 시도 (헬스 체크용)
+    2) 실패하면 JSON 절기 테이블 사용
+    """
     source = "json"
     fallback = True
 
@@ -188,9 +208,48 @@ def get_jieqi_with_fallback(year: str):
     return source, fallback, year_data
 
 def resolve_saju_year(birth_dt_kst: datetime, birth_year_jieqi_list: list) -> int:
+    """
+    입춘 기준 사주 연도:
+      - 출생일시 < 해당 해 입춘 시각 -> birth_year - 1
+      - 출생일시 >= 해당 해 입춘 시각 -> birth_year
+    """
     ipchun_dt = find_ipchun_dt(birth_year_jieqi_list)
     y = birth_dt_kst.year
     return y if birth_dt_kst >= ipchun_dt else y - 1
+
+# =========================
+# Core (Day Pillar)
+# =========================
+
+STEMS = ["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"]
+BRANCHES = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
+
+def gregorian_to_jdn(y: int, m: int, d: int) -> int:
+    """
+    Gregorian calendar date -> Julian Day Number (JDN)
+    """
+    a = (14 - m) // 12
+    y2 = y + 4800 - a
+    m2 = m + 12 * a - 3
+    return d + (153 * m2 + 2) // 5 + 365 * y2 + y2 // 4 - y2 // 100 + y2 // 400 - 32045
+
+def get_day_pillar(local_date: date):
+    """
+    일주(일간/일지) 계산 (간지 코드만)
+    기준:
+      - 1984-02-02(Gregorian) = 甲子(갑자일)로 맞춰 offset 적용
+      - day_index = (JDN + 47) % 60  (0=甲子 ... 59=癸亥)
+    """
+    jdn = gregorian_to_jdn(local_date.year, local_date.month, local_date.day)
+    day_index = (jdn + 47) % 60
+    stem = STEMS[day_index % 10]
+    branch = BRANCHES[day_index % 12]
+    return {
+        "stem": stem,
+        "branch": branch,
+        "ganji": stem + branch,
+        "index60": day_index
+    }
 
 # =========================
 # API
@@ -217,7 +276,7 @@ def calc_saju(
         # 1) 출생 datetime (KST) + 시간 적용 여부
         birth_dt, time_applied = parse_birth_dt_kst(birth, birth_time)
 
-        # 2) 출생 '행정연도' 절기 가져오기
+        # 2) 출생 '행정연도' 절기 가져오기 (입춘 비교는 출생연도 입춘으로 판정)
         birth_year = str(birth_dt.year)
         source, fallback, jieqi_list = get_jieqi_with_fallback(birth_year)
 
@@ -225,12 +284,18 @@ def calc_saju(
         saju_year = resolve_saju_year(birth_dt, jieqi_list)
         ipchun_dt = find_ipchun_dt(jieqi_list)
 
+        # 4) ✅ 일주 계산 (로컬 날짜 기준)
+        day_pillar = get_day_pillar(birth_dt.date())
+
         return {
             "input": {
                 "birth": birth,
                 "calendar": calendar,
                 "birth_time": birth_time,
                 "gender": gender
+            },
+            "pillars": {
+                "day": day_pillar
             },
             "jieqi": {
                 "year": birth_year,
@@ -245,7 +310,8 @@ def calc_saju(
                 "saju_year": saju_year,
                 "year_rule": "ipchun_boundary",
                 "time_policy": "optional",
-                "time_applied": time_applied
+                "time_applied": time_applied,
+                "day_rule": "gregorian_jdn_offset47"
             }
         }
 
