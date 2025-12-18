@@ -19,28 +19,39 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install deps
-        run: pip install skyfield jplephem numpy
+      - name: Install dependencies
+        run: |
+          pip install skyfield jplephem numpy
 
       - name: Generate jieqi json
-        run: python tools/generate_jieqi_table.py
+        run: |
+          python tools/generate_jieqi_table.py
 
-      # ✅ 여기서 숫자로 최종 검증 (지금 우리가 하고 싶은 딱 그거)
+      # ✅ 숫자로 데이터 검증 (153년 × 24개)
       - name: Verify jieqi json counts
         run: |
           python - <<'PY'
           import json
-          d=json.load(open("data/jieqi_1900_2052.json","r",encoding="utf-8"))
+          p="data/jieqi_1900_2052.json"
+          d=json.load(open(p,"r",encoding="utf-8"))
           years=sorted(map(int,d.keys()))
           print("years_count =", len(years))
           print("range =", years[0], "~", years[-1])
           print("all_24 =", all(len(d[str(y)])==24 for y in years))
           PY
 
+      # ✅ 변경 있을 때만 커밋 (없으면 스킵)
       - name: Commit and push
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
+
           git add data/jieqi_1900_2052.json
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
           git commit -m "Update jieqi table"
           git push
