@@ -8,7 +8,7 @@ import os
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.5.0"  # month pillar (deg-based) added
+    version="1.6.0"  # hour pillar added
 )
 
 # =========================
@@ -63,7 +63,6 @@ def _parse_dt_any(value):
     return None
 
 def _pick_item_dt(item):
-    # kst 우선, 없으면 utc
     if isinstance(item, dict):
         if "kst" in item:
             dt = _parse_dt_any(item.get("kst"))
@@ -109,6 +108,11 @@ def find_ipchun_dt(jieqi_list):
     raise ValueError("입춘(立春) datetime not found in jieqi table")
 
 def normalize_birth_time(birth_time: str):
+    """
+    A안 정책: 시간은 optional.
+    - unknown/빈값/형식오류 => time_applied False
+    - 정상(HH:MM) => time_applied True
+    """
     if not isinstance(birth_time, str):
         return None, False
     s = birth_time.strip()
@@ -205,10 +209,9 @@ def get_year_pillar(saju_year: int):
     return {"stem": stem, "branch": branch, "ganji": stem + branch, "index60": index60}
 
 # =========================
-# ✅ Month Pillar (deg-based major terms)
+# Month Pillar (deg-based major terms)
 # =========================
 
-# 월지(寅~丑)는 "절(節)" 12개 기준: 입춘부터 시작
 MAJOR_TERMS = [
     ("입춘", "寅", 2),
     ("경칩", "卯", 3),
@@ -227,8 +230,6 @@ MAJOR_NAME_TO_BRANCH = {n: b for (n, b, _) in MAJOR_TERMS}
 MAJOR_NAME_TO_EXPECTED_MONTH = {n: m for (n, _, m) in MAJOR_TERMS}
 BRANCH_ORDER_FROM_YIN = ["寅","卯","辰","巳","午","未","申","酉","戌","亥","子","丑"]
 
-# 연간 -> 寅월 시작 월천간 규칙
-# 甲己年 丙寅 / 乙庚年 戊寅 / 丙辛年 庚寅 / 丁壬年 壬寅 / 戊癸年 甲寅
 YEAR_STEM_TO_YIN_MONTH_STEM = {
     "甲": "丙", "己": "丙",
     "乙": "戊", "庚": "戊",
@@ -238,7 +239,6 @@ YEAR_STEM_TO_YIN_MONTH_STEM = {
 }
 
 def _month_close(expected: int, actual: int) -> bool:
-    # ±1 month 허용 (1~12 wrap)
     if expected == actual:
         return True
     if expected == 1 and actual == 12:
@@ -247,12 +247,7 @@ def _month_close(expected: int, actual: int) -> bool:
         return True
     return abs(expected - actual) == 1
 
-def extract_major_terms(year: str, jieqi_list: list):
-    """
-    절기 테이블 dt가 중복(반쯤 복붙)된 상태를 감안해서:
-    - '절(節)' 12개만 뽑고
-    - 각 절기에 대해 '예상월'에 맞는 dt만 채택
-    """
+def extract_major_terms(jieqi_list: list):
     majors = []
     if not isinstance(jieqi_list, list):
         return majors
@@ -270,16 +265,10 @@ def extract_major_terms(year: str, jieqi_list: list):
 
         exp_m = MAJOR_NAME_TO_EXPECTED_MONTH.get(name)
         if exp_m is not None and not _month_close(exp_m, dt.month):
-            # 반년 뒤로 복붙된 잘못된 dt로 판단 -> 버림
             continue
 
-        majors.append({
-            "name": name,
-            "branch": MAJOR_NAME_TO_BRANCH[name],
-            "dt": dt,
-        })
+        majors.append({"name": name, "branch": MAJOR_NAME_TO_BRANCH[name], "dt": dt})
 
-    # 혹시 하나도 못뽑으면(극단 케이스) dt 필터 없이라도 뽑기
     if len(majors) == 0:
         for item in jieqi_list:
             if not isinstance(item, dict):
@@ -295,16 +284,12 @@ def extract_major_terms(year: str, jieqi_list: list):
     return majors
 
 def compute_month_branch(birth_dt: datetime, majors_prev: list, majors_this: list) -> str:
-    """
-    출생 시각 기준으로 가장 최근의 '절(節)'을 찾고 그에 해당하는 월지를 리턴.
-    """
     timeline = []
     timeline.extend(majors_prev)
     timeline.extend(majors_this)
     timeline = [x for x in timeline if isinstance(x.get("dt"), datetime)]
     timeline.sort(key=lambda x: x["dt"])
 
-    # 가장 최근 절(節)
     chosen = None
     for x in timeline:
         if x["dt"] <= birth_dt:
@@ -312,105 +297,88 @@ def compute_month_branch(birth_dt: datetime, majors_prev: list, majors_this: lis
         else:
             break
 
-    # 출생이 아주 이른 경우(1월 초) chosen이 없을 수 있음 -> 소한(丑)로 fallback
     if chosen is None:
         return "丑"
     return chosen["branch"]
 
 def compute_month_stem(year_stem: str, month_branch: str) -> str:
-    """
-    월천간: 寅월 시작 천간 + (월지 offset)로 계산
-    """
-    start_stem = YEAR_STEM_TO_YIN_MONTH_STEM.get(year_stem)
-    if not start_stem:
-        # 비정상 입력이면 그냥 안전 fallback
-        start_stem = "丙"
-
+    start_stem = YEAR_STEM_TO_YIN_MONTH_STEM.get(year_stem, "丙")
     start_idx = STEMS.index(start_stem)
-    offset = BRANCH_ORDER_FROM_YIN.index(month_branch)  # 寅=0 ... 丑=11
-    stem = STEMS[(start_idx + offset) % 10]
-    return stem
+    offset = BRANCH_ORDER_FROM_YIN.index(month_branch)
+    return STEMS[(start_idx + offset) % 10]
 
 def get_month_pillar(birth_dt: datetime, year_stem: str, jieqi_prev: list, jieqi_this: list):
-    majors_prev = extract_major_terms("prev", jieqi_prev)
-    majors_this = extract_major_terms("this", jieqi_this)
+    majors_prev = extract_major_terms(jieqi_prev)
+    majors_this = extract_major_terms(jieqi_this)
     month_branch = compute_month_branch(birth_dt, majors_prev, majors_this)
     month_stem = compute_month_stem(year_stem, month_branch)
     return {
         "stem": month_stem,
         "branch": month_branch,
         "ganji": month_stem + month_branch,
-        "rule": "major_terms_deg_name_expected_month_filter"
+        "rule": "major_terms_only + expected_month_filter + yearstem_mapping"
     }
 
 # =========================
-# Jieqi Check (existing)
+# ✅ Hour Pillar (NEW)
 # =========================
 
-JIEQI_NAMES_24 = {
-    "입춘","우수","경칩","춘분","청명","곡우",
-    "입하","소만","망종","하지","소서","대서",
-    "입추","처서","백로","추분","한로","상강",
-    "입동","소설","대설","동지","소한","대한"
+# 시지(時支): 2시간 단위, 子시는 23:00~00:59
+HOUR_BRANCHES = [
+    ("子", 23, 1),
+    ("丑", 1, 3),
+    ("寅", 3, 5),
+    ("卯", 5, 7),
+    ("辰", 7, 9),
+    ("巳", 9, 11),
+    ("午", 11, 13),
+    ("未", 13, 15),
+    ("申", 15, 17),
+    ("酉", 17, 19),
+    ("戌", 19, 21),
+    ("亥", 21, 23),
+]
+
+# 일간 기준 子시 시작 천간
+# 甲己日 甲子 / 乙庚日 丙子 / 丙辛日 戊子 / 丁壬日 庚子 / 戊癸日 壬子
+DAY_STEM_TO_ZI_HOUR_STEM = {
+    "甲": "甲", "己": "甲",
+    "乙": "丙", "庚": "丙",
+    "丙": "戊", "辛": "戊",
+    "丁": "庚", "壬": "庚",
+    "戊": "壬", "癸": "壬",
 }
 
-def check_jieqi_year(year: str, jieqi_list: list):
-    issues = []
-    stats = {}
+BRANCH_ORDER_FROM_ZI = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
 
-    if not isinstance(jieqi_list, list):
-        return {"ok": False, "year": year, "issues": ["jieqi_list is not a list"], "stats": {}}
+def get_hour_branch(hour: int, minute: int) -> str:
+    # 子시: 23:00~00:59
+    if hour == 23 or hour == 0:
+        return "子"
+    # 그 외 2시간 구간
+    for br, start_h, end_h in HOUR_BRANCHES[1:]:
+        if start_h <= hour < end_h:
+            return br
+    # 안전 fallback
+    return "子"
 
-    stats["count"] = len(jieqi_list)
-    if len(jieqi_list) != 24:
-        issues.append(f"count is {len(jieqi_list)} (expected 24)")
+def get_hour_stem(day_stem: str, hour_branch: str) -> str:
+    start_stem = DAY_STEM_TO_ZI_HOUR_STEM.get(day_stem, "甲")  # 子시 시작 천간
+    start_idx = STEMS.index(start_stem)
+    offset = BRANCH_ORDER_FROM_ZI.index(hour_branch)  # 子=0..亥=11
+    return STEMS[(start_idx + offset) % 10]
 
-    # dt 파싱 + 중복 체크
-    dt_raws = []
-    for it in jieqi_list:
-        dt = _pick_item_dt(it)
-        if dt:
-            dt_raws.append(dt.isoformat())
-        else:
-            issues.append("some items missing parseable datetime (kst/utc)")
-            break
-
-    if dt_raws:
-        uniq_dt = len(set(dt_raws))
-        stats["unique_datetimes"] = uniq_dt
-        stats["duplicate_datetimes"] = len(dt_raws) - uniq_dt
-        if uniq_dt < 20:
-            issues.append(f"too many duplicate datetimes: unique={uniq_dt}/24")
-        stats["datetime_sorted"] = (dt_raws == sorted(dt_raws))
-
-    # deg 분포
-    degs = []
-    for it in jieqi_list:
-        if isinstance(it, dict) and "deg" in it:
-            try:
-                degs.append(int(it.get("deg")))
-            except Exception:
-                pass
-    if degs:
-        stats["unique_degs"] = len(set(degs))
-        stats["duplicate_degs"] = 24 - len(set(degs))
-        if len(set(degs)) < 20:
-            issues.append(f"too many duplicate deg values: unique={len(set(degs))}/24")
-    else:
-        issues.append("deg field missing (recommended for month pillar)")
-
-    # name 포함률
-    names = []
-    for it in jieqi_list:
-        if isinstance(it, dict) and isinstance(it.get("name"), str):
-            names.append(it["name"])
-    if names:
-        in_set = sum(1 for n in names if n in JIEQI_NAMES_24)
-        stats["name_in_24set"] = in_set
-        stats["name_unknown"] = len(names) - in_set
-
-    ok = (len(issues) == 0)
-    return {"ok": ok, "year": year, "issues": issues, "stats": stats}
+def get_hour_pillar(birth_dt: datetime, time_applied: bool, day_stem: str):
+    if not time_applied:
+        return None
+    hb = get_hour_branch(birth_dt.hour, birth_dt.minute)
+    hs = get_hour_stem(day_stem, hb)
+    return {
+        "stem": hs,
+        "branch": hb,
+        "ganji": hs + hb,
+        "rule": "2h_blocks + zi_at_23_00 + daystem_mapping"
+    }
 
 # =========================
 # API
@@ -419,18 +387,6 @@ def check_jieqi_year(year: str, jieqi_list: list):
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-@app.get("/api/jieqi/check")
-def jieqi_check(
-    year: str = Query(..., description="YYYY (e.g. 1979)")
-):
-    try:
-        source, fallback, jieqi_list = get_jieqi_with_fallback(year)
-        result = check_jieqi_year(year, jieqi_list)
-        result["meta"] = {"source": source, "fallback": fallback}
-        return result
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.get("/api/saju/calc")
 def calc_saju(
@@ -451,7 +407,6 @@ def calc_saju(
         saju_year = resolve_saju_year(birth_dt, jieqi_this)
         ipchun_dt = find_ipchun_dt(jieqi_this)
 
-        # prev year jieqi (for Jan/early Feb month boundary safety)
         prev_year = str(birth_dt.year - 1)
         try:
             _, _, jieqi_prev = get_jieqi_with_fallback(prev_year)
@@ -460,8 +415,6 @@ def calc_saju(
 
         day_pillar = get_day_pillar(birth_dt.date())
         year_pillar = get_year_pillar(saju_year)
-
-        # ✅ 월주 추가 (deg 기반 / 절 12개만)
         month_pillar = get_month_pillar(
             birth_dt=birth_dt,
             year_stem=year_pillar["stem"],
@@ -469,12 +422,20 @@ def calc_saju(
             jieqi_this=jieqi_this,
         )
 
+        # ✅ 시주 추가
+        hour_pillar = get_hour_pillar(
+            birth_dt=birth_dt,
+            time_applied=time_applied,
+            day_stem=day_pillar["stem"]
+        )
+
         return {
             "input": {"birth": birth, "calendar": calendar, "birth_time": birth_time, "gender": gender},
             "pillars": {
                 "year": year_pillar,
                 "month": month_pillar,
-                "day": day_pillar
+                "day": day_pillar,
+                "hour": hour_pillar
             },
             "jieqi": {"year": birth_year, "count": len(jieqi_this), "items": jieqi_this},
             "meta": {
@@ -488,7 +449,8 @@ def calc_saju(
                 "time_applied": time_applied,
                 "day_rule": "gregorian_jdn_offset47",
                 "year_rule2": "base1984_gapja",
-                "month_rule": "major_terms_only + expected_month_filter + yearstem_mapping"
+                "month_rule": "major_terms_only + expected_month_filter + yearstem_mapping",
+                "hour_rule": "2h_blocks + zi_at_23_00 + daystem_mapping"
             }
         }
 
