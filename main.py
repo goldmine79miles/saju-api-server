@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 from datetime import datetime
+import requests
 import json
 import os
 
@@ -12,8 +13,10 @@ app = FastAPI(
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 JIEQI_TABLE_PATH = os.path.join(BASE_DIR, "data", "jieqi_1900_2052.json")
 
+KASI_SERVICE_KEY = os.getenv("KASI_SERVICE_KEY")
+
 # =========================
-# 기본 유틸
+# Utils
 # =========================
 
 def load_jieqi_table():
@@ -21,37 +24,50 @@ def load_jieqi_table():
         return json.load(f)
 
 # =========================
-# KASI 관련 (완전 무력화)
+# KASI (optional)
 # =========================
 
-def fetch_lunar_info(*args, **kwargs):
-    """
-    ❌ KASI API 호출 제거
-    ⭕️ 임시 더미 반환
-    """
-    return {
-        "calendar": "solar",
-        "note": "KASI disabled (temporary)"
+def fetch_jieqi_from_kasi(year: int):
+    if not KASI_SERVICE_KEY:
+        raise RuntimeError("KASI key missing")
+
+    url = "https://apis.data.go.kr/B090041/openapi/service/LrsrCldInfoService/getSolCalInfo"
+    params = {
+        "serviceKey": KASI_SERVICE_KEY,
+        "solYear": year,
+        "solMonth": 1,
+        "solDay": 1,
+        "numOfRows": 10,
+        "pageNo": 1,
     }
 
-def fetch_jieqi_from_kasi(*args, **kwargs):
-    """
-    ❌ 사용 안 함
-    """
-    return None
+    r = requests.get(url, params=params, timeout=3)
+    r.raise_for_status()
+
+    # ⚠️ 실제 절기 파싱은 아직 미구현
+    # 여기선 "KASI가 살아있다" 확인 용도
+    return {"kasi_alive": True}
 
 # =========================
-# 핵심 로직
+# Core
 # =========================
 
-def build_jieqi_list(year: str):
+def get_jieqi_with_fallback(year: str):
+    # 1️⃣ KASI 먼저 시도
+    try:
+        fetch_jieqi_from_kasi(int(year))
+        source = "kasi"
+    except Exception:
+        source = "json"
+
+    # 2️⃣ 실제 데이터는 JSON 테이블 사용
     table = load_jieqi_table()
     year_data = table.get(year)
 
     if not year_data:
         raise ValueError(f"No jieqi data for year {year}")
 
-    return year_data
+    return source, year_data
 
 # =========================
 # API
@@ -67,30 +83,24 @@ def calc_saju(
     calendar: str = Query("solar", description="solar or lunar"),
 ):
     try:
-        # 날짜 파싱
         birth_date = datetime.strptime(birth, "%Y-%m-%d")
         year = str(birth_date.year)
 
-        # ❌ KASI 호출 안 함
-        lunar_info = fetch_lunar_info(birth_date)
-
-        # ✅ 절기 테이블만 사용
-        jieqi_list = build_jieqi_list(year)
+        source, jieqi_list = get_jieqi_with_fallback(year)
 
         return {
             "input": {
                 "birth": birth,
                 "calendar": calendar
             },
-            "lunar_info": lunar_info,
             "jieqi": {
                 "year": year,
                 "count": len(jieqi_list),
                 "items": jieqi_list
             },
             "meta": {
-                "source": "precomputed_jieqi_table",
-                "kasi": "disabled"
+                "source": source,
+                "fallback": source == "json"
             }
         }
 
