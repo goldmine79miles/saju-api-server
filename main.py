@@ -10,9 +10,12 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# =========================
+# Paths / Env
+# =========================
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 JIEQI_TABLE_PATH = os.path.join(BASE_DIR, "data", "jieqi_1900_2052.json")
-
 KASI_SERVICE_KEY = os.getenv("KASI_SERVICE_KEY")
 
 # =========================
@@ -24,10 +27,14 @@ def load_jieqi_table():
         return json.load(f)
 
 # =========================
-# KASI (optional)
+# KASI (optional, fallback-safe)
 # =========================
 
 def fetch_jieqi_from_kasi(year: int):
+    """
+    KASI가 살아있는지 확인만 하는 용도.
+    실패하면 예외를 던져 fallback으로 전환된다.
+    """
     if not KASI_SERVICE_KEY:
         raise RuntimeError("KASI key missing")
 
@@ -43,31 +50,35 @@ def fetch_jieqi_from_kasi(year: int):
 
     r = requests.get(url, params=params, timeout=3)
     r.raise_for_status()
-
-    # ⚠️ 실제 절기 파싱은 아직 미구현
-    # 여기선 "KASI가 살아있다" 확인 용도
-    return {"kasi_alive": True}
+    return True
 
 # =========================
 # Core
 # =========================
 
 def get_jieqi_with_fallback(year: str):
-    # 1️⃣ KASI 먼저 시도
+    """
+    1) KASI 먼저 시도
+    2) 실패하면 JSON 절기 테이블 사용
+    """
+    source = "json"
+    fallback = True
+
     try:
         fetch_jieqi_from_kasi(int(year))
         source = "kasi"
+        fallback = False
     except Exception:
         source = "json"
+        fallback = True
 
-    # 2️⃣ 실제 데이터는 JSON 테이블 사용
     table = load_jieqi_table()
     year_data = table.get(year)
 
     if not year_data:
         raise ValueError(f"No jieqi data for year {year}")
 
-    return source, year_data
+    return source, fallback, year_data
 
 # =========================
 # API
@@ -81,17 +92,28 @@ def health():
 def calc_saju(
     birth: str = Query(..., description="YYYY-MM-DD"),
     calendar: str = Query("solar", description="solar or lunar"),
+    birth_time: str = Query("unknown", description="HH:MM (e.g. 10:00)"),
+    gender: str = Query("unknown", description="male or female"),
 ):
     try:
+        # 기본 검증
+        if gender not in ("male", "female", "unknown"):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "gender must be male or female"}
+            )
+
         birth_date = datetime.strptime(birth, "%Y-%m-%d")
         year = str(birth_date.year)
 
-        source, jieqi_list = get_jieqi_with_fallback(year)
+        source, fallback, jieqi_list = get_jieqi_with_fallback(year)
 
         return {
             "input": {
                 "birth": birth,
-                "calendar": calendar
+                "calendar": calendar,
+                "birth_time": birth_time,
+                "gender": gender
             },
             "jieqi": {
                 "year": year,
@@ -100,7 +122,7 @@ def calc_saju(
             },
             "meta": {
                 "source": source,
-                "fallback": source == "json"
+                "fallback": fallback
             }
         }
 
