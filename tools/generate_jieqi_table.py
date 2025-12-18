@@ -6,9 +6,14 @@ from math import floor
 from skyfield.api import load
 from skyfield.framelib import ecliptic_frame
 
+# ====== 고정 상수 ======
 KST = dt.timezone(dt.timedelta(hours=9))
 
-# 24절기: 태양 황경(도) 기준 (사주 실무에서 흔히 쓰는 순서: 입춘 기준으로 흐름 잡음)
+# de421 커버 범위(공식 에러 메시지 기준)
+DE421_MIN_UTC = dt.datetime(1899, 7, 29, tzinfo=dt.timezone.utc)
+DE421_MAX_UTC = dt.datetime(2053, 10, 9, tzinfo=dt.timezone.utc)
+
+# 24절기 정의(15도 단위)
 JIEQI_DEF = [
     ("춘분", 0), ("청명", 15), ("곡우", 30), ("입하", 45),
     ("소만", 60), ("망종", 75), ("하지", 90), ("소서", 105),
@@ -19,10 +24,18 @@ JIEQI_DEF = [
 ]
 NAME_BY_DEG = {deg: name for name, deg in JIEQI_DEF}
 
-# 생성 범위
 START_YEAR = 1900
 END_YEAR = 2052
 
+def clamp_utc(d: dt.datetime) -> dt.datetime:
+    """de421 범위로 UTC datetime을 강제 클램프"""
+    if d < DE421_MIN_UTC:
+        return DE421_MIN_UTC
+    if d > DE421_MAX_UTC:
+        return DE421_MAX_UTC
+    return d
+
+# ====== 천문 계산 ======
 def sun_lon_deg(eph, t):
     """태양 황경(0~360)"""
     earth = eph["earth"]
@@ -46,26 +59,20 @@ def unwrap_lons(lons_mod):
     return out
 
 def lon_unwrapped_near_left(eph, t, left_u):
-    """
-    단일 시각의 황경(0~360)을 '구간 왼쪽 unwrapped 값' 기준으로 같은 브랜치로 맞춤.
-    (브랜치 튐 방지 핵심)
-    """
+    """단일 시각 황경을 왼쪽 unwrapped 기준으로 같은 브랜치로 맞춤"""
     lon = sun_lon_deg(eph, t)
     k = round((left_u - lon) / 360.0)
     return lon + 360.0 * k
 
 def bisect_unwrapped(ts, eph, t0, t1, lon0_u, lon1_u, target_u, max_iter=80):
-    """
-    [t0,t1]에서 unwrapped lon = target_u 되는 시각을 이분법으로 찾기.
-    전제: lon0_u <= target_u <= lon1_u
-    """
+    """[t0,t1]에서 unwrapped lon = target_u 되는 시각 이분법"""
     if lon1_u < lon0_u:
         lon1_u = lon0_u
     if not (lon0_u <= target_u <= lon1_u):
         return None
 
     a_t, b_t = t0, t1
-    a_lon, b_lon = float(lon0_u), float(lon1_u)
+    a_lon = float(lon0_u)
 
     for _ in range(max_iter):
         m_t = ts.tt_jd((a_t.tt + b_t.tt) / 2.0)
@@ -77,21 +84,35 @@ def bisect_unwrapped(ts, eph, t0, t1, lon0_u, lon1_u, target_u, max_iter=80):
         if m_lon < target_u:
             a_t, a_lon = m_t, m_lon
         else:
-            b_t, b_lon = m_t, m_lon
+            b_t = m_t
 
     return ts.tt_jd((a_t.tt + b_t.tt) / 2.0)
 
 def collect_events(ts, eph, start_utc, end_utc, step_hours=12):
     """
-    기간 내 모든 15도 경계(=절기) 교차 이벤트를 시간순으로 수집.
-    - 스텝은 12시간이면 충분 (태양 이동량 ~0.5도/12h 수준)
+    기간 내 모든 15도 경계(=절기) 교차 이벤트 수집.
+    ★ 여기서도 범위를 다시 클램프해서 RangeError를 원천 차단.
     """
+    start_utc = clamp_utc(start_utc)
+    end_utc = clamp_utc(end_utc)
+
+    if end_utc <= start_utc:
+        return []
+
     step = dt.timedelta(hours=step_hours)
     points = []
     cur = start_utc
+
+    # ★ end_utc 넘어가면 즉시 중단 (범위 밖 생성 방지)
     while cur <= end_utc:
         points.append(cur)
-        cur += step
+        cur = cur + step
+        if cur > DE421_MAX_UTC:
+            break
+
+    # points가 너무 짧으면 종료
+    if len(points) < 2:
+        return []
 
     times = ts.from_datetimes(points)
 
@@ -99,6 +120,7 @@ def collect_events(ts, eph, start_utc, end_utc, step_hours=12):
     sun = eph["sun"]
     ast = earth.at(times).observe(sun).apparent()
     lon, _, _ = ast.frame_latlon(ecliptic_frame)
+
     lons_mod = (lon.degrees % 360.0)
     lons_u = unwrap_lons(lons_mod)
 
@@ -111,14 +133,11 @@ def collect_events(ts, eph, start_utc, end_utc, step_hours=12):
         if b_u < a_u:
             b_u = a_u
 
-        # 이 구간에서 15도 단위 경계를 몇 개 넘는지 계산
         m0 = floor(a_u / 15.0)
         m1 = floor(b_u / 15.0)
-
         if m1 <= m0:
             continue
 
-        # (m0+1 .. m1) 경계 통과
         for m in range(m0 + 1, m1 + 1):
             target_u = 15.0 * m
             deg_mod = int(target_u % 360.0)
@@ -141,23 +160,19 @@ def collect_events(ts, eph, start_utc, end_utc, step_hours=12):
                 "kst": kst_dt.strftime("%H%M"),
                 "sunLongitude": deg_mod,
                 "source": "table",
-                "_ts": kst_dt,  # 내부 정렬용(출력 시 제거)
+                "_ts": kst_dt,  # 내부 정렬용
             })
 
     events.sort(key=lambda x: x["_ts"])
     return events
 
 def build_year_24(events, year):
-    """
-    '해당 연도 KST의 입춘'을 시작점으로 24개 연속 절기를 리턴.
-    """
-    # 해당 연도(KST) 입춘 찾기
+    """KST 기준 해당 연도의 입춘부터 24개 연속 절기 슬라이스"""
     start_idx = None
     for idx, e in enumerate(events):
         if e["dateName"] == "입춘" and e["_ts"].year == year:
             start_idx = idx
             break
-
     if start_idx is None:
         return []
 
@@ -180,19 +195,19 @@ def main():
     ts = load.timescale()
     eph = load("de421.bsp")
 
-    print("JIEQI_GENERATOR_VERSION=timeline_slice_v1")
+    print("JIEQI_GENERATOR_VERSION=timeline_slice_v2_rangeclamp")
 
     data = {}
     bad = []
 
     for year in range(START_YEAR, END_YEAR + 1):
-        # 2년+α 윈도우 (입춘 기준 24개를 안정적으로 자르기 위함)
-        # de421 커버 범위 클램프
-        MIN_UTC = dt.datetime(1899, 7, 29, tzinfo=dt.timezone.utc)
-        MAX_UTC = dt.datetime(2053, 10, 9, tzinfo=dt.timezone.utc)
+        # 2년 윈도우 (입춘 기준 24개를 자르기 위한 범위)
+        start = dt.datetime(year - 1, 1, 1, tzinfo=dt.timezone.utc)
+        end = dt.datetime(year + 1, 12, 31, tzinfo=dt.timezone.utc)
 
-        start = max(dt.datetime(year - 1, 1, 1, tzinfo=dt.timezone.utc), MIN_UTC)
-        end   = min(dt.datetime(year + 1, 12, 31, tzinfo=dt.timezone.utc), MAX_UTC)
+        # ★ 여기서도 클램프 (이중 안전장치)
+        start = clamp_utc(start)
+        end = clamp_utc(end)
 
         events = collect_events(ts, eph, start, end, step_hours=12)
         items = build_year_24(events, year)
@@ -208,7 +223,7 @@ def main():
     print("generated:", out)
     print("bad years:", bad[:30], f"... total={len(bad)}")
 
-    # 품질 강제(원하면 바로 켜세요): 24개 아니면 액션 실패
+    # 품질 강제 (원하면 주석 해제)
     # if bad:
     #     raise SystemExit(f"Bad years exist: {bad[:10]} ... total={len(bad)}")
 
