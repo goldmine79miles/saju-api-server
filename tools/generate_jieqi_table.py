@@ -96,6 +96,8 @@ def _build_term_index_func(eph):
     def term_index(t):
         lon = _sun_ecl_lon_deg(eph, t)
         return int(lon // 15.0)  # 0..23
+
+    term_index.step_days = 1   #
     return term_index
 
 
