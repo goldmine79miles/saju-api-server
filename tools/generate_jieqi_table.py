@@ -185,7 +185,7 @@ def _pick_hit_for_kst_year(hits, year: int):
 def generate():
     print("JIEQI_GENERATOR_VERSION=independent_24terms_v1_kst_year_filter")
     ts = load.timescale()
-    eph = load("de421.bsp")
+    eph = load("./de421.bsp")
 
     result = {}
     bad_years = []
