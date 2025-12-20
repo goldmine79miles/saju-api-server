@@ -256,3 +256,4 @@ def generate():
 
 if __name__ == "__main__":
     generate()
+    print("[JIEQI] generator script reached END", flush=True)
