@@ -6,6 +6,12 @@ import requests
 import json
 import os
 
+# ✅ 추가: 절기 생성 자동 실행용
+import sys
+import subprocess
+import threading
+import time
+
 app = FastAPI(
     title="Saju API Server",
     version="1.7.0"  # API Contract v1 Fixed
@@ -19,6 +25,120 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 JIEQI_TABLE_PATH = os.path.join(BASE_DIR, "data", "jieqi_1900_2052.json")
 KASI_SERVICE_KEY = os.getenv("KASI_SERVICE_KEY")
 KST = ZoneInfo("Asia/Seoul")
+
+# =========================
+# ✅ Jieqi Table Bootstrap (Railway용)
+# =========================
+
+def _is_jieqi_table_usable(path: str) -> bool:
+    """
+    최소 검증:
+    - 파일 존재
+    - JSON 로딩 가능
+    - 임의의 연도 1~2개가 24개 아이템을 가지고 있는지
+    """
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, dict):
+            return False
+
+        # 대표 샘플 연도 (가볍게)
+        for y in ("1979", "2000"):
+            items = data.get(y)
+            if isinstance(items, list) and len(items) == 24:
+                return True
+
+        # 샘플이 없으면, 아무 연도나 24개 있는지라도 체크
+        for _, items in data.items():
+            if isinstance(items, list) and len(items) == 24:
+                return True
+
+        return False
+    except Exception:
+        return False
+
+
+def _run_generate_jieqi_script():
+    """
+    tools/generate_jieqi_table.py를 실행해서 data/jieqi_1900_2052.json 생성/갱신.
+    Railway에서는 콘솔이 없을 수 있으니 서버 시작 시 자동으로 돌린다.
+    """
+    script_path = os.path.join(BASE_DIR, "tools", "generate_jieqi_table.py")
+
+    if not os.path.exists(script_path):
+        print(f"[JIEQI] generator script not found: {script_path}")
+        return
+
+    # 출력 경로를 확실히 고정
+    env = os.environ.copy()
+    env["JIEQI_OUTPUT"] = JIEQI_TABLE_PATH
+
+    # 성능 관련 env 필요하면 여기서 세팅 가능 (기본값 사용)
+    # env["JIEQI_SCAN_STEP_HOURS"] = "6"
+    # env["JIEQI_BISECT_ITERS"] = "32"
+
+    print("[JIEQI] generating jieqi table... (this may take a while)")
+
+    try:
+        # sys.executable로 같은 런타임 보장
+        proc = subprocess.run(
+            [sys.executable, script_path],
+            cwd=BASE_DIR,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+        print("[JIEQI] generator stdout:")
+        if proc.stdout:
+            print(proc.stdout[:4000])  # 너무 길면 컷
+        if proc.stderr:
+            print("[JIEQI] generator stderr:")
+            print(proc.stderr[:4000])
+
+        if proc.returncode != 0:
+            print(f"[JIEQI] generator failed: returncode={proc.returncode}")
+            return
+
+        # 생성 후 검증
+        if _is_jieqi_table_usable(JIEQI_TABLE_PATH):
+            print("[JIEQI] jieqi table generated and looks usable ✅")
+        else:
+            print("[JIEQI] jieqi table generated but looks NOT usable ❌")
+
+    except Exception as e:
+        print(f"[JIEQI] generator exception: {e}")
+
+
+def ensure_jieqi_table_async():
+    """
+    서버 스타트업에서 절기테이블이 없거나 비정상일 때만
+    백그라운드로 1회 생성 시도 (배포 타임아웃 방지).
+    """
+    try:
+        if _is_jieqi_table_usable(JIEQI_TABLE_PATH):
+            print("[JIEQI] existing jieqi table OK (skip generation)")
+            return
+
+        # data 폴더 보장
+        os.makedirs(os.path.dirname(JIEQI_TABLE_PATH), exist_ok=True)
+
+        t = threading.Thread(target=_run_generate_jieqi_script, daemon=True)
+        t.start()
+        print("[JIEQI] generation thread started")
+
+    except Exception as e:
+        print(f"[JIEQI] ensure_jieqi_table_async error: {e}")
+
+
+@app.on_event("startup")
+def _startup():
+    # ✅ Railway 콘솔 없을 때를 대비한 자동 생성 트리거
+    ensure_jieqi_table_async()
 
 # =========================
 # Utils
