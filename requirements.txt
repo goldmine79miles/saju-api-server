@@ -1,3 +1,6 @@
 fastapi
 uvicorn
 requests
+numpy
+skyfield
+jplephem
