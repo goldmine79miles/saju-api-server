@@ -1,10 +1,9 @@
 # tools/generate_jieqi_table.py
-# JIEQI_GENERATOR_VERSION=timeline_slice_v4_fast_ipchun_anchor_no_observe
+# JIEQI_GENERATOR_VERSION=independent_24terms_v1_kst_year_filter
 
 import json
 import math
 import os
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -22,22 +21,18 @@ OUTPUT_PATH = os.getenv("JIEQI_OUTPUT", "data/jieqi_1900_2052.json")
 EPH_MARGIN_DAYS = int(os.getenv("JIEQI_EPH_MARGIN_DAYS", "7"))
 
 # Speed knobs
-SCAN_STEP_HOURS = int(os.getenv("JIEQI_SCAN_STEP_HOURS", "6"))   # was 3
-BISECT_ITERS    = int(os.getenv("JIEQI_BISECT_ITERS", "30"))     # was 50
+SCAN_STEP_HOURS = int(os.getenv("JIEQI_SCAN_STEP_HOURS", "6"))
+BISECT_ITERS    = int(os.getenv("JIEQI_BISECT_ITERS", "32"))
 
-# Window policy (fast)
-# 1) Find Ipchun in a tight window each year
-IPCHUN_SEARCH_START = (2, 1)   # Feb 1
-IPCHUN_SEARCH_END   = (3, 1)   # Mar 1  (exclusive-ish)
-# 2) After Ipchun found, only search events in [ipchun - pad, ipchun + horizon]
-POST_IPCHUN_PAD_DAYS = int(os.getenv("JIEQI_POST_IPCHUN_PAD_DAYS", "2"))
-POST_IPCHUN_HORIZON_DAYS = int(os.getenv("JIEQI_POST_IPCHUN_HORIZON_DAYS", "400"))
+# Search window around a Gregorian year, then select by KST year
+YEAR_PAD_DAYS = int(os.getenv("JIEQI_YEAR_PAD_DAYS", "3"))
 
 KST = timezone(timedelta(hours=9))
 UTC = timezone.utc
 TAU = 2.0 * math.pi
 
 # 24 solar terms (Korean) at 15-degree increments
+# NOTE: This list is fine; we will compute each term independently.
 JIEQI = [
     ("춘분",   0),
     ("청명",  15),
@@ -66,9 +61,6 @@ JIEQI = [
 ]
 
 TARGET_RADS = {deg: math.radians(deg) % TAU for _, deg in JIEQI}
-
-IPCHUN_DEG = 315
-IPCHUN_RAD = TARGET_RADS[IPCHUN_DEG]
 
 
 def _dt_utc(y, m, d, hh=0, mm=0, ss=0):
@@ -178,106 +170,20 @@ def find_crossings_for_deg(ts, eph, target_rad: float, start_dt: datetime, end_d
     return out
 
 
-def find_ipchun_for_year(ts, eph, year: int):
+def _pick_hit_for_kst_year(hits, year: int):
     """
-    Find Ipchun (315°) for target year using tight window around early Feb.
-    Choose the first hit whose KST year == year (safety).
+    Choose the hit whose KST year matches `year`.
+    If multiple, pick the earliest.
     """
-    s_m, s_d = IPCHUN_SEARCH_START
-    e_m, e_d = IPCHUN_SEARCH_END
-
-    start_dt = _dt_utc(year, s_m, s_d)
-    end_dt   = _dt_utc(year, e_m, e_d)
-
-    hits = find_crossings_for_deg(ts, eph, IPCHUN_RAD, start_dt, end_dt)
-
-    # pick hit that matches KST year
-    for h in hits:
-        if h.astimezone(KST).year == year:
-            return h
-
-    # fallback: if only one hit exists, return it
-    if len(hits) == 1:
-        return hits[0]
-
+    candidates = [h for h in hits if h.astimezone(KST).year == year]
+    candidates.sort()
+    if candidates:
+        return candidates[0]
     return None
 
 
-def build_year_events_from_ipchun(ts, eph, ipchun_dt_utc: datetime):
-    """
-    After ipchun, search only small window: [ipchun - pad, ipchun + horizon]
-    Collect all 24 term crossings in that window.
-    """
-    start_dt = ipchun_dt_utc - timedelta(days=POST_IPCHUN_PAD_DAYS)
-    end_dt   = ipchun_dt_utc + timedelta(days=POST_IPCHUN_HORIZON_DAYS)
-
-    start_dt, end_dt = clamp_range(start_dt, end_dt)
-
-    raw = []
-    for name, deg in JIEQI:
-        hits = find_crossings_for_deg(ts, eph, TARGET_RADS[deg], start_dt, end_dt)
-        for dt_hit in hits:
-            raw.append((dt_hit, name, deg))
-
-    # sort by time
-    raw.sort(key=lambda x: x[0])
-
-    # dedupe exact duplicates (time+deg)
-    seen = set()
-    dedup = []
-    for dt_hit, name, deg in raw:
-        key = (dt_hit.isoformat(), deg)
-        if key in seen:
-            continue
-        seen.add(key)
-        dedup.append((dt_hit, name, deg))
-
-    return dedup
-
-
-def slice_24_from_ipchun(events, ipchun_dt_utc: datetime):
-    """
-    In the events list, find the ipchun nearest to ipchun_dt_utc (same deg),
-    then take 24 consecutive events starting there.
-    """
-    # find index of ipchun event closest to anchor
-    best_i = None
-    best_abs = None
-    for i, (dt_utc, name, deg) in enumerate(events):
-        if deg != IPCHUN_DEG:
-            continue
-        delta = abs((dt_utc - ipchun_dt_utc).total_seconds())
-        if best_abs is None or delta < best_abs:
-            best_abs = delta
-            best_i = i
-
-    if best_i is None:
-        return None
-
-    sliced = events[best_i: best_i + 24]
-    if len(sliced) != 24:
-        return None
-
-    degs = [deg for _, _, deg in sliced]
-    if len(set(degs)) != 24:
-        return None
-
-    out = []
-    for dt_utc, name, deg in sliced:
-        out.append({
-            "name": name,
-            "deg": deg,
-            "utc": _to_iso(dt_utc),
-            "kst": _kst_iso(dt_utc),
-        })
-
-    # sort by kst (should already be)
-    out.sort(key=lambda x: x["kst"])
-    return out
-
-
 def generate():
-    print("JIEQI_GENERATOR_VERSION=timeline_slice_v4_fast_ipchun_anchor_no_observe")
+    print("JIEQI_GENERATOR_VERSION=independent_24terms_v1_kst_year_filter")
     ts = load.timescale()
     eph = load("de421.bsp")
 
@@ -285,23 +191,57 @@ def generate():
     bad_years = []
 
     for y in range(START_YEAR, END_YEAR + 1):
-        ipchun = find_ipchun_for_year(ts, eph, y)
-        if ipchun is None:
+        # Search window: [Jan 1 - pad, next Jan 1 + pad], then select by KST year
+        start_dt = _dt_utc(y, 1, 1) - timedelta(days=YEAR_PAD_DAYS)
+        end_dt   = _dt_utc(y + 1, 1, 1) + timedelta(days=YEAR_PAD_DAYS)
+        start_dt, end_dt = clamp_range(start_dt, end_dt)
+
+        year_items = []
+        ok = True
+
+        for name, deg in JIEQI:
+            hits = find_crossings_for_deg(ts, eph, TARGET_RADS[deg], start_dt, end_dt)
+            picked = _pick_hit_for_kst_year(hits, y)
+
+            if picked is None:
+                # one more fallback: widen by a week (rare KST boundary weirdness)
+                s2 = start_dt - timedelta(days=7)
+                e2 = end_dt + timedelta(days=7)
+                s2, e2 = clamp_range(s2, e2)
+                hits2 = find_crossings_for_deg(ts, eph, TARGET_RADS[deg], s2, e2)
+                picked = _pick_hit_for_kst_year(hits2, y)
+
+            if picked is None:
+                ok = False
+                print(f"[WARN] {y} -> term missing: {name}({deg}) hits={len(hits)}")
+                continue
+
+            year_items.append({
+                "name": name,
+                "deg": deg,
+                "utc": _to_iso(picked),
+                "kst": _kst_iso(picked),
+            })
+
+        # Validate: must be exactly 24 unique degrees and times must be in KST year y
+        if ok and len(year_items) == 24 and len({it["deg"] for it in year_items}) == 24:
+            # sort by time
+            year_items.sort(key=lambda x: x["kst"])
+
+            # sanity: every item belongs to the requested KST year
+            for it in year_items:
+                kst_year = datetime.fromisoformat(it["kst"]).year
+                if kst_year != y:
+                    ok = False
+                    print(f"[WARN] {y} -> KST year mismatch: {it['name']} kst={it['kst']}")
+                    break
+
+        if not ok or len(year_items) != 24:
             bad_years.append(y)
-            print(f"[WARN] {y} -> ipchun not found")
             result[str(y)] = []
             continue
 
-        events = build_year_events_from_ipchun(ts, eph, ipchun)
-        sliced = slice_24_from_ipchun(events, ipchun)
-
-        if sliced is None or len(sliced) != 24:
-            bad_years.append(y)
-            print(f"[WARN] {y} -> slice failed (events={len(events)})")
-            result[str(y)] = []
-            continue
-
-        result[str(y)] = sliced
+        result[str(y)] = year_items
 
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
