@@ -140,7 +140,7 @@ def _startup():
     print("[BOOT] startup event fired ✅", flush=True)
 
     # ✅ Railway 콘솔 없을 때를 대비한 자동 생성 트리거
-    ensure_jieqi_table_async()
+    # ensure_jieqi_table_async()
 
 # =========================
 # Utils
