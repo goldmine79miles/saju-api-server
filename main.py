@@ -12,6 +12,9 @@ import subprocess
 import threading
 import time
 
+# ✅ BOOT 로그 (main.py가 실제로 로드되는지 확인)
+print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
+
 app = FastAPI(
     title="Saju API Server",
     version="1.7.0"  # API Contract v1 Fixed
@@ -70,21 +73,16 @@ def _run_generate_jieqi_script():
     script_path = os.path.join(BASE_DIR, "tools", "generate_jieqi_table.py")
 
     if not os.path.exists(script_path):
-        print(f"[JIEQI] generator script not found: {script_path}")
+        print(f"[JIEQI] generator script not found: {script_path}", flush=True)
         return
 
-    # 출력 경로를 확실히 고정
+    # 출력 경로 고정
     env = os.environ.copy()
     env["JIEQI_OUTPUT"] = JIEQI_TABLE_PATH
 
-    # 성능 관련 env 필요하면 여기서 세팅 가능 (기본값 사용)
-    # env["JIEQI_SCAN_STEP_HOURS"] = "6"
-    # env["JIEQI_BISECT_ITERS"] = "32"
-
-    print("[JIEQI] generating jieqi table... (this may take a while)")
+    print("[JIEQI] generating jieqi table... (this may take a while)", flush=True)
 
     try:
-        # sys.executable로 같은 런타임 보장
         proc = subprocess.run(
             [sys.executable, script_path],
             cwd=BASE_DIR,
@@ -93,25 +91,26 @@ def _run_generate_jieqi_script():
             text=True,
         )
 
-        print("[JIEQI] generator stdout:")
+        print("[JIEQI] generator stdout:", flush=True)
         if proc.stdout:
-            print(proc.stdout[:4000])  # 너무 길면 컷
+            print(proc.stdout[:4000], flush=True)
+
         if proc.stderr:
-            print("[JIEQI] generator stderr:")
-            print(proc.stderr[:4000])
+            print("[JIEQI] generator stderr:", flush=True)
+            print(proc.stderr[:4000], flush=True)
 
         if proc.returncode != 0:
-            print(f"[JIEQI] generator failed: returncode={proc.returncode}")
+            print(f"[JIEQI] generator failed: returncode={proc.returncode}", flush=True)
             return
 
         # 생성 후 검증
         if _is_jieqi_table_usable(JIEQI_TABLE_PATH):
-            print("[JIEQI] jieqi table generated and looks usable ✅")
+            print("[JIEQI] jieqi table generated and looks usable ✅", flush=True)
         else:
-            print("[JIEQI] jieqi table generated but looks NOT usable ❌")
+            print("[JIEQI] jieqi table generated but looks NOT usable ❌", flush=True)
 
     except Exception as e:
-        print(f"[JIEQI] generator exception: {e}")
+        print(f"[JIEQI] generator exception: {e}", flush=True)
 
 
 def ensure_jieqi_table_async():
@@ -121,7 +120,7 @@ def ensure_jieqi_table_async():
     """
     try:
         if _is_jieqi_table_usable(JIEQI_TABLE_PATH):
-            print("[JIEQI] existing jieqi table OK (skip generation)")
+            print("[JIEQI] existing jieqi table OK (skip generation)", flush=True)
             return
 
         # data 폴더 보장
@@ -129,14 +128,17 @@ def ensure_jieqi_table_async():
 
         t = threading.Thread(target=_run_generate_jieqi_script, daemon=True)
         t.start()
-        print("[JIEQI] generation thread started")
+        print("[JIEQI] generation thread started", flush=True)
 
     except Exception as e:
-        print(f"[JIEQI] ensure_jieqi_table_async error: {e}")
+        print(f"[JIEQI] ensure_jieqi_table_async error: {e}", flush=True)
 
 
 @app.on_event("startup")
 def _startup():
+    # ✅ startup 이벤트가 실제로 타는지 확인
+    print("[BOOT] startup event fired ✅", flush=True)
+
     # ✅ Railway 콘솔 없을 때를 대비한 자동 생성 트리거
     ensure_jieqi_table_async()
 
@@ -218,7 +220,6 @@ def get_year_pillar(year: int):
 # =========================
 # Month / Hour (이미 검증된 로직 유지)
 # =========================
-
 # (중간 로직은 기존과 동일 – 생략 없이 유지)
 # 👉 계산 결과는 변경 없음
 
