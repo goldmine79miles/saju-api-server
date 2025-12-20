@@ -192,7 +192,7 @@ def generate():
 
     for y in range(START_YEAR, END_YEAR + 1):
         print(f"[JIEQI] processing year {y}", flush=True)
-        
+
         # Search window: [Jan 1 - pad, next Jan 1 + pad], then select by KST year
         start_dt = _dt_utc(y, 1, 1) - timedelta(days=YEAR_PAD_DAYS)
         end_dt   = _dt_utc(y + 1, 1, 1) + timedelta(days=YEAR_PAD_DAYS)
