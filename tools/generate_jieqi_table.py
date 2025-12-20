@@ -7,7 +7,7 @@ import os
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
-from skyfield.api import load
+from skyfield.api import load, load_file
 from skyfield.framelib import ecliptic_frame
 
 # -----------------------------
@@ -185,7 +185,7 @@ def _pick_hit_for_kst_year(hits, year: int):
 def generate():
     print("JIEQI_GENERATOR_VERSION=independent_24terms_v1_kst_year_filter")
     ts = load.timescale()
-    eph = load("./de421.bsp")
+    eph = load_file("de421.bsp")
 
     result = {}
     bad_years = []
