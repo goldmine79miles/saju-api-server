@@ -1,5 +1,5 @@
 # tools/generate_jieqi_table.py
-# JIEQI_GENERATOR_VERSION=official_skyfield_exact
+# JIEQI_GENERATOR_VERSION=skyfield_almanac_discrete_v1
 
 import json
 import os
@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 
 from skyfield.api import load, load_file
 from skyfield.framelib import ecliptic_frame
+from skyfield import almanac
 
 # -----------------------------
 # Config (env)
@@ -19,7 +20,7 @@ APPEND = os.getenv("JIEQI_APPEND", "true").lower() in ("1", "true", "yes", "y")
 KST = timezone(timedelta(hours=9))
 
 # -----------------------------
-# 24 Solar Terms (degrees)
+# 24 Solar Terms (ecliptic longitude degrees)
 # -----------------------------
 JIEQI_24 = [
     ("소한", 285),
@@ -48,6 +49,9 @@ JIEQI_24 = [
     ("동지", 270),
 ]
 
+NAME_BY_DEG = {deg: name for name, deg in JIEQI_24}
+ALL_DEGS = sorted(NAME_BY_DEG.keys())  # [0,15,...,345]
+
 # -----------------------------
 # Utilities
 # -----------------------------
@@ -68,94 +72,129 @@ def _load_existing(path: str) -> dict:
         return {}
 
 
-def sun_ecliptic_longitude_deg(eph, ts, t):
-    earth = eph["earth"]
-    sun = eph["sun"]
-    astrometric = earth.at(t).observe(sun)
-    lon, _, _ = astrometric.apparent().frame_latlon(ecliptic_frame)
-    return lon.degrees % 360.0
+def _sun_ecl_lon_deg(eph, t) -> float:
+    """Sun apparent ecliptic longitude in degrees [0,360)."""
+    e = eph["earth"].at(t)
+    s = e.observe(eph["sun"]).apparent()
+    lon, lat, dist = s.frame_latlon(ecliptic_frame)
+    return float(lon.degrees % 360.0)
 
 
-def find_exact_time(eph, ts, target_deg, t_start, t_end):
+def _deg_round_to_15(lon_deg: float) -> int:
+    """Round longitude to nearest 15-degree boundary."""
+    # e.g. 359.999 -> 0, 0.001 -> 0, 14.999 -> 15
+    k = int(round(lon_deg / 15.0)) % 24
+    return int((k * 15) % 360)
+
+
+def _build_term_index_func(eph):
     """
-    Find exact time when sun's ecliptic longitude == target_deg
-    using binary search (monotonic in short interval).
+    Discrete function for almanac.find_discrete:
+    returns which 15-degree "sector" the sun is in: 0..23
+    sector changes exactly at each 15-degree boundary.
     """
-    lo = t_start
-    hi = t_end
-
-    for _ in range(60):
-        mid = ts.from_datetime(
-            lo.utc_datetime() + (hi.utc_datetime() - lo.utc_datetime()) / 2
-        )
-        lon = sun_ecliptic_longitude_deg(eph, ts, mid)
-
-        # normalize comparison
-        diff = (lon - target_deg + 540) % 360 - 180
-        if diff < 0:
-            lo = mid
-        else:
-            hi = mid
-
-    return hi
+    def term_index(t):
+        lon = _sun_ecl_lon_deg(eph, t)
+        return int(lon // 15.0)  # 0..23
+    return term_index
 
 
-# -----------------------------
-# Core
-# -----------------------------
 def generate_year(eph, ts, year: int):
+    # Search within [Jan 1, Jan 1 next year)
+    t0 = ts.utc(year, 1, 1, 0, 0, 0)
+    t1 = ts.utc(year + 1, 1, 1, 0, 0, 0)
+
+    f = _build_term_index_func(eph)
+
+    # Find all sector changes (there should be 24 changes per year)
+    times, values = almanac.find_discrete(t0, t1, f)
+
+    hits = {}  # degree -> hit_time(UTC datetime)
+
+    for t in times:
+        lon = _sun_ecl_lon_deg(eph, t)
+        deg = _deg_round_to_15(lon)
+
+        # Only keep degrees that are real jieqi targets (all are multiples of 15)
+        if deg not in NAME_BY_DEG:
+            continue
+
+        # keep first occurrence in the interval
+        if deg not in hits:
+            hits[deg] = t.utc_datetime().replace(tzinfo=timezone.utc)
+
+    # We expect all 24 degrees to appear in a year interval.
+    # If something is missing (edge numeric case), widen by 1 day and retry once.
+    if len(hits) != 24:
+        t0w = ts.utc((datetime(year, 1, 1, tzinfo=timezone.utc) - timedelta(days=1)))
+        t1w = ts.utc((datetime(year + 1, 1, 1, tzinfo=timezone.utc) + timedelta(days=1)))
+        times2, _ = almanac.find_discrete(t0w, t1w, f)
+        for t in times2:
+            dt = t.utc_datetime().replace(tzinfo=timezone.utc)
+            if not (datetime(year, 1, 1, tzinfo=timezone.utc) <= dt < datetime(year + 1, 1, 1, tzinfo=timezone.utc)):
+                continue
+            lon = _sun_ecl_lon_deg(eph, t)
+            deg = _deg_round_to_15(lon)
+            if deg in NAME_BY_DEG and deg not in hits:
+                hits[deg] = dt
+
+    if len(hits) != 24:
+        missing = [d for d in ALL_DEGS if d not in hits]
+        raise RuntimeError(f"year={year} missing terms: {missing} (got {len(hits)}/24)")
+
+    # Output in the project’s preferred order (소한..동지)
     results = []
-
-    for name, degree in JIEQI_24:
-        # search window: ±3 days around expected date
-        approx_day = int(((degree % 360) / 360) * 365)
-        base = ts.utc(year, 1, 1 + approx_day)
-
-        t_start = ts.utc(base.utc_datetime() - timedelta(days=3))
-        t_end = ts.utc(base.utc_datetime() + timedelta(days=3))
-
-        hit = find_exact_time(eph, ts, degree, t_start, t_end)
-
-        utc_dt = hit.utc_datetime().replace(tzinfo=timezone.utc)
+    for name, deg in JIEQI_24:
+        utc_dt = hits[deg]
         kst_dt = utc_dt.astimezone(KST)
-
         results.append({
             "name": name,
-            "degree": degree,
+            "degree": int(deg),
             "utc": utc_dt.isoformat().replace("+00:00", "Z"),
             "kst": kst_dt.isoformat(),
         })
-
-    if len(results) != 24:
-        raise RuntimeError(f"{year}: expected 24 jieqi, got {len(results)}")
 
     return results
 
 
 def generate():
-    print(f"[JIEQI] RANGE={START_YEAR}..{END_YEAR}", flush=True)
+    print(f"[JIEQI] OUTPUT_PATH={OUTPUT_PATH}", flush=True)
+    print(f"[JIEQI] RANGE={START_YEAR}..{END_YEAR} APPEND={APPEND}", flush=True)
 
-    # load ephemeris
+    # Load ephemeris (prefer local file)
     if os.path.exists("de421.bsp"):
         eph = load_file("de421.bsp")
     else:
-        eph = load("de421.bsp")
+        root_bsp = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "de421.bsp"))
+        eph = load_file(root_bsp) if os.path.exists(root_bsp) else load("de421.bsp")
 
     ts = load.timescale()
 
     existing = _load_existing(OUTPUT_PATH)
-    result = dict(existing)
+    result = dict(existing) if isinstance(existing, dict) else {}
 
-    for year in range(START_YEAR, END_YEAR + 1):
-        print(f"[JIEQI] year {year}", flush=True)
-        result[str(year)] = generate_year(eph, ts, year)
+    bad_years = []
+    total = END_YEAR - START_YEAR + 1
+    for i, y in enumerate(range(START_YEAR, END_YEAR + 1), start=1):
+        print(f"[JIEQI] processing year {y} ({i}/{total})", flush=True)
+        try:
+            result[str(y)] = generate_year(eph, ts, y)
+            print(f"[JIEQI] year {y} ok (24 items)", flush=True)
+        except Exception as e:
+            print(f"[JIEQI][ERR] year {y} failed: {e}", flush=True)
+            bad_years.append(y)
 
         _ensure_dir(OUTPUT_PATH)
         with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
 
-    print("[OK] jieqi generation complete", flush=True)
+    if bad_years:
+        print(f"[SUMMARY] bad_years_count={len(bad_years)} years={bad_years[:20]}{'...' if len(bad_years)>20 else ''}", flush=True)
+        raise SystemExit(1)
+
+    print("[OK] all years have 24 items", flush=True)
 
 
 if __name__ == "__main__":
     generate()
+    print("[JIEQI] generator script reached END", flush=True)
