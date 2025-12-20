@@ -17,7 +17,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.7.0"  # API Contract v1 Fixed
+    version="1.7.1"  # admin 1-shot jieqi generator endpoint added
 )
 
 # =========================
@@ -65,22 +65,22 @@ def _is_jieqi_table_usable(path: str) -> bool:
         return False
 
 
-def _run_generate_jieqi_script():
+def _run_generate_jieqi_script(timeout_seconds: int = 1800):
     """
     tools/generate_jieqi_table.py를 실행해서 data/jieqi_1900_2052.json 생성/갱신.
-    Railway에서는 콘솔이 없을 수 있으니 서버 시작 시 자동으로 돌린다.
+    ⚠️ 부팅에서는 절대 안 돌리고, 관리자 엔드포인트에서 1회만 트리거한다.
     """
     script_path = os.path.join(BASE_DIR, "tools", "generate_jieqi_table.py")
 
     if not os.path.exists(script_path):
         print(f"[JIEQI] generator script not found: {script_path}", flush=True)
-        return
+        return False, f"generator script not found: {script_path}"
 
     # 출력 경로 고정
     env = os.environ.copy()
     env["JIEQI_OUTPUT"] = JIEQI_TABLE_PATH
 
-    print("[JIEQI] generating jieqi table... (this may take a while)", flush=True)
+    print("[JIEQI] generating jieqi table... (admin-triggered, 1-shot)", flush=True)
 
     try:
         proc = subprocess.run(
@@ -89,6 +89,7 @@ def _run_generate_jieqi_script():
             env=env,
             capture_output=True,
             text=True,
+            timeout=timeout_seconds,
         )
 
         print("[JIEQI] generator stdout:", flush=True)
@@ -100,47 +101,39 @@ def _run_generate_jieqi_script():
             print(proc.stderr[:4000], flush=True)
 
         if proc.returncode != 0:
-            print(f"[JIEQI] generator failed: returncode={proc.returncode}", flush=True)
-            return
+            msg = f"generator failed: returncode={proc.returncode}"
+            print(f"[JIEQI] {msg}", flush=True)
+            return False, msg
 
         # 생성 후 검증
         if _is_jieqi_table_usable(JIEQI_TABLE_PATH):
             print("[JIEQI] jieqi table generated and looks usable ✅", flush=True)
+            return True, "ok"
         else:
             print("[JIEQI] jieqi table generated but looks NOT usable ❌", flush=True)
+            return False, "generated but not usable"
 
+    except subprocess.TimeoutExpired:
+        msg = f"timeout after {timeout_seconds}s"
+        print(f"[JIEQI] generator timeout: {msg}", flush=True)
+        return False, msg
     except Exception as e:
-        print(f"[JIEQI] generator exception: {e}", flush=True)
+        msg = f"generator exception: {e}"
+        print(f"[JIEQI] {msg}", flush=True)
+        return False, msg
 
 
-def ensure_jieqi_table_async():
-    """
-    서버 스타트업에서 절기테이블이 없거나 비정상일 때만
-    백그라운드로 1회 생성 시도 (배포 타임아웃 방지).
-    """
-    try:
-        if _is_jieqi_table_usable(JIEQI_TABLE_PATH):
-            print("[JIEQI] existing jieqi table OK (skip generation)", flush=True)
-            return
-
-        # data 폴더 보장
-        os.makedirs(os.path.dirname(JIEQI_TABLE_PATH), exist_ok=True)
-
-        t = threading.Thread(target=_run_generate_jieqi_script, daemon=True)
-        t.start()
-        print("[JIEQI] generation thread started", flush=True)
-
-    except Exception as e:
-        print(f"[JIEQI] ensure_jieqi_table_async error: {e}", flush=True)
-
+# =========================
+# Startup (DO NOT AUTO-GENERATE)
+# =========================
 
 @app.on_event("startup")
 def _startup():
     # ✅ startup 이벤트가 실제로 타는지 확인
     print("[BOOT] startup event fired ✅", flush=True)
+    # ✅ 절기 자동 생성은 꺼둔다 (부팅 지연/멈춤 방지)
+    # ensure_jieqi_table_async()  # DO NOT ENABLE
 
-    # ✅ Railway 콘솔 없을 때를 대비한 자동 생성 트리거
-    # ensure_jieqi_table_async()
 
 # =========================
 # Utils
@@ -218,18 +211,64 @@ def get_year_pillar(year: int):
     }
 
 # =========================
-# Month / Hour (이미 검증된 로직 유지)
-# =========================
-# (중간 로직은 기존과 동일 – 생략 없이 유지)
-# 👉 계산 결과는 변경 없음
-
-# =========================
 # API
 # =========================
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# ✅ 관리자용 1회 생성 엔드포인트
+# - 부팅 시 자동생성 금지
+# - 필요할 때 딱 한 번 호출해서 data/jieqi_1900_2052.json을 만든다
+@app.post("/admin/generate-jieqi")
+def admin_generate_jieqi(
+    token: str = Query(..., description="관리자 토큰"),
+    force: bool = Query(False, description="True면 기존 파일이 있어도 재생성 시도")
+):
+    try:
+        admin_token = os.getenv("ADMIN_TOKEN")
+
+        if not admin_token:
+            return JSONResponse(
+                status_code=500,
+                content={"ok": False, "error": "ADMIN_TOKEN env not set"}
+            )
+
+        if token != admin_token:
+            return JSONResponse(
+                status_code=403,
+                content={"ok": False, "error": "invalid token"}
+            )
+
+        # 이미 usable 하면 스킵
+        if (not force) and _is_jieqi_table_usable(JIEQI_TABLE_PATH):
+            return {
+                "ok": True,
+                "message": "jieqi table already exists (skip)",
+                "path": JIEQI_TABLE_PATH
+            }
+
+        # data 폴더 보장
+        os.makedirs(os.path.dirname(JIEQI_TABLE_PATH), exist_ok=True)
+
+        ok, msg = _run_generate_jieqi_script(timeout_seconds=1800)
+        if not ok:
+            return JSONResponse(
+                status_code=500,
+                content={"ok": False, "error": msg, "path": JIEQI_TABLE_PATH}
+            )
+
+        return {
+            "ok": True,
+            "message": "jieqi table generated",
+            "path": JIEQI_TABLE_PATH
+        }
+
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
 
 @app.get("/api/saju/calc")
 def calc_saju(
