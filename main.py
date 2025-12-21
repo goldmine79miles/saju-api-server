@@ -232,11 +232,22 @@ def calc_saju(
 
     hour_pillar = get_hour_pillar(day_pillar, hh, mm) if birth_time != "unknown" else None
 
-    return {
+       return {
+        "input": {
+            "birth": birth,
+            "calendar": calendar,
+            "birth_time": birth_time,
+            "gender": gender,
+        },
         "pillars": {
             "year": year_pillar,
             "month": month_pillar,
             "day": day_pillar,
             "hour": hour_pillar
+        },
+        "jieqi": jieqi_this,
+        "debug": {
+            "timezone": "KST",
+            "saju_year": saju_year
         }
     }
