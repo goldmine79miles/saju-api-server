@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 import json
 import os
@@ -13,7 +13,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.7.6"  # month pillar + hour pillar (only)
+    version="1.7.7"  # month boundary -> next-day midnight (match common almanac), keep hour/month pillars
 )
 
 # ==================================================
@@ -229,7 +229,7 @@ def get_year_pillar(year: int):
 
 
 # =========================
-# Pillars (month) - 표준 절기(12절) 기반
+# Pillars (month) - 절기(12절) 기반 + "점신식" 날짜 경계 보정
 # =========================
 
 MONTH_TERM_TO_BRANCH = [
@@ -270,16 +270,27 @@ def _jieqi_term_dt_map(jieqi_list):
     return m
 
 def _get_month_branch_from_terms(birth_dt: datetime, this_year_terms: dict, prev_year_terms: dict):
+    """
+    ✅ 점신/시중 만세력 기준에 맞춘 월주 경계:
+    - 절기 '시각' 기준이 아니라 '날짜' 기준으로 월주 전환
+    - 즉, 절기 발생 '당일'은 이전 월로 유지
+    - 절기 다음날 00:00(KST)부터 다음 월로 전환
+    """
+    def boundary_next_midnight(dt: datetime) -> datetime:
+        d = dt.astimezone(KST).date() + timedelta(days=1)
+        return datetime(d.year, d.month, d.day, 0, 0, tzinfo=KST)
+
     candidates = []
 
     for term, branch in MONTH_TERM_TO_BRANCH:
         dt = this_year_terms.get(term)
         if dt:
-            candidates.append((dt, branch, term))
+            candidates.append((boundary_next_midnight(dt), branch, term))
 
+    # 1월 초(소한 이전) 케이스를 위해 전년도 대설(子)도 포함
     prev_daeseol = prev_year_terms.get("대설")
     if prev_daeseol:
-        candidates.append((prev_daeseol, "子", "대설(prev)"))
+        candidates.append((boundary_next_midnight(prev_daeseol), "子", "대설(prev)"))
 
     valid = [c for c in candidates if c[0] <= birth_dt]
     if not valid:
@@ -312,7 +323,6 @@ def get_month_pillar(birth_dt: datetime, saju_year_pillar: dict, jieqi_this_year
 
 HOUR_BRANCH_SEQ = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
 
-# 일간(일주 천간) -> 子시(자시) 월간 시작(표준)
 DAY_STEM_TO_ZI_HOUR_STEM = {
     "甲": "甲", "己": "甲",
     "乙": "丙", "庚": "丙",
@@ -322,12 +332,9 @@ DAY_STEM_TO_ZI_HOUR_STEM = {
 }
 
 def _get_hour_branch(hh: int, mm: int) -> str:
-    """
-    子:23-01, 丑:01-03, ... , 亥:21-23
-    """
     total = hh * 60 + mm
-    shifted = (total - 23 * 60) % (24 * 60)   # 23:00을 기준으로 0분
-    idx = shifted // 120                      # 2시간(120분) 단위
+    shifted = (total - 23 * 60) % (24 * 60)  # 23:00을 기준으로 0분
+    idx = shifted // 120                      # 2시간 단위
     return HOUR_BRANCH_SEQ[int(idx)]
 
 def get_hour_pillar(day_pillar: dict, hh: int, mm: int):
@@ -438,7 +445,7 @@ def calc_saju(
         year_pillar = get_year_pillar(saju_year)
         day_pillar = get_day_pillar(birth_dt.date())
 
-        # ✅ 월주
+        # ✅ 월주 (점신식 날짜 경계 보정 적용)
         _, _, jieqi_prev = get_jieqi_with_fallback(str(birth_dt.year - 1))
         month_pillar = get_month_pillar(birth_dt, year_pillar, jieqi_this, jieqi_prev)
 
