@@ -85,8 +85,8 @@ def gregorian_to_jdn(y, m, d):
     return d + (153*m2+2)//5 + 365*y2 + y2//4 - y2//100 + y2//400 - 32045
 
 def get_day_pillar(dt: date):
-    # ✅ FIX: +47 → +48 (점신/시중 만세력 기준 일주 연속과 일치)
-    idx = (gregorian_to_jdn(dt.year, dt.month, dt.day) + 48) % 60
+    # ✅ FIX: +47 → +49 (점신/시중 만세력 기준 일주 연속과 일치)
+    idx = (gregorian_to_jdn(dt.year, dt.month, dt.day) + 49) % 60
     return {
         "stem": STEMS[idx % 10],
         "branch": BRANCHES[idx % 12],
