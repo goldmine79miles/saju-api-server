@@ -1,5 +1,5 @@
 # tools/generate_jieqi_table.py
-# JIEQI_GENERATOR_VERSION=skyfield_root_finding_final
+# JIEQI_GENERATOR_VERSION=skyfield_root_finding_final_segment_coverage
 
 import json
 import os
@@ -92,51 +92,63 @@ def _to_utc_aware(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
+def _ephemeris_coverage_time(eph):
+    """
+    SpiceKernel 환경에서 eph.coverage 가 없을 수 있어서
+    spk.segments에서 커버리지(Time)를 직접 계산한다.
+    """
+    segs = None
+    if hasattr(eph, "spk") and hasattr(eph.spk, "segments"):
+        segs = eph.spk.segments
+    elif hasattr(eph, "segments"):
+        segs = eph.segments
+
+    if not segs:
+        raise RuntimeError("Cannot determine ephemeris coverage: no segments found")
+
+    start_t = min(seg.start_time for seg in segs)
+    end_t = max(seg.end_time for seg in segs)
+    return start_t, end_t
+
+
 # -----------------------------
 # Core: generate_year
 # -----------------------------
 def generate_year(eph, ts, year: int):
     """
-    안정형 절기 생성기 (not found 방지)
-    - 탐색 구간을 넓게: (year-2)/12/01 ~ (year+1)/01/31
-      * 연초 절기(소한/대한/입춘) 누락 방지
-    - 6시간 샘플링 + unwrap으로 0/360 경계 문제 제거
-    - 각 절기 타겟(deg)에 대해 360*k 후보를 전부 탐색
-      -> 구간 내 교차가 존재하는 k를 찾아 브래킷 형성
-    - 이진탐색으로 교차 시각 정밀화
-    - KST 기준 year에 속하는 이벤트만 채택
+    안정형 절기 생성기
+    - 넉넉한 탐색 구간 + 6시간 샘플링 + unwrap
+    - deg + 360*k 후보 전부 탐색하여 교차 브래킷 구성 후 이진 탐색
+    - KST 기준 year에 속하는 절기만 채택
 
     🔥 중요:
-    - Skyfield는 ephemeris 범위를 TT 기준으로 체크함.
-    - datetime으로 "경계값"을 맞춰도 TT 변환에서 튕길 수 있음.
-    - 그래서 dt0/dt1을 eph.coverage(start/end)로 "Time(tt) 비교"로 클램프 + 안전마진 필요.
+    - ephemeris 범위 체크는 TT 기준이라 경계에서 튕길 수 있음.
+    - SpiceKernel에 eph.coverage가 없을 수 있으므로 segments로 커버리지 계산.
+    - dt0/dt1는 Time(tt) 비교로 클램프 + 안전 마진(일 단위) 적용.
     """
     UTC = timezone.utc
 
-    # 🔥 넉넉한 탐색 구간 (연초/연말 절기 누락 방지)
+    # 넉넉한 탐색 구간
     dt0 = datetime(year - 2, 12, 1, 0, 0, tzinfo=UTC)
     dt1 = datetime(year + 1, 1, 31, 0, 0, tzinfo=UTC)
 
-    # 🔥 ephemeris coverage로 클램프 (Time 기준 + 안전 마진)
-    # - Skyfield는 TT 기준으로 범위를 체크하므로 datetime 비교만으로는 경계에서 튕길 수 있음
-    # - 경계 떨림 방지: start는 +2일, end는 -2일 안전 마진
-    eph_start_t = eph.coverage.start
-    eph_end_t = eph.coverage.end
+    # ✅ 커버리지(Time) 계산 (segments 기반)
+    eph_start_t, eph_end_t = _ephemeris_coverage_time(eph)
+
+    # ✅ TT 기준 비교 + 안전마진(일)
+    safety_days = 2.0  # float days
 
     t0 = ts.from_datetime(dt0)
     t1 = ts.from_datetime(dt1)
 
-    safety = timedelta(days=2)
-
     if t0.tt < eph_start_t.tt:
-        dt0 = _to_utc_aware((eph_start_t + safety).utc_datetime())
+        dt0 = _to_utc_aware((eph_start_t + safety_days).utc_datetime())
     if t1.tt > eph_end_t.tt:
-        dt1 = _to_utc_aware((eph_end_t - safety).utc_datetime())
+        dt1 = _to_utc_aware((eph_end_t - safety_days).utc_datetime())
 
     if dt0 >= dt1:
         raise RuntimeError(
-            f"{year} search range invalid after clamp: dt0={dt0.isoformat()} dt1={dt1.isoformat()} "
-            f"(eph={_to_utc_aware(eph_start_t.utc_datetime()).isoformat()}..{_to_utc_aware(eph_end_t.utc_datetime()).isoformat()})"
+            f"{year} search range invalid after clamp: dt0={dt0.isoformat()} dt1={dt1.isoformat()}"
         )
 
     # 6시간 샘플링
@@ -153,7 +165,7 @@ def generate_year(eph, ts, year: int):
     times = ts.from_datetimes(dts)
     lon = (earth.at(times).observe(sun).apparent().ecliptic_latlon()[1].degrees) % 360.0
 
-    # unwrap: 359 -> 0 점프 제거 (연속 시퀀스로)
+    # unwrap: 359 -> 0 점프 제거
     lon_unwrapped = np.rad2deg(np.unwrap(np.deg2rad(lon)))
     min_lon = float(np.min(lon_unwrapped))
     max_lon = float(np.max(lon_unwrapped))
@@ -163,7 +175,7 @@ def generate_year(eph, ts, year: int):
     for name, deg in JIEQI_24:
         deg = float(deg)
 
-        # 이 구간에서 가능한 360*k 후보들을 넉넉히 열거
+        # 가능한 360*k 후보들 열거
         k_min = int(np.floor((min_lon - deg) / 360.0)) - 1
         k_max = int(np.ceil((max_lon - deg) / 360.0)) + 1
 
@@ -197,7 +209,7 @@ def generate_year(eph, ts, year: int):
             fl = f(left_dt)
             fr = f(right_dt)
 
-            # 브래킷 실패면 이 k는 스킵
+            # 브래킷 실패면 스킵
             if fl * fr > 0:
                 continue
 
@@ -218,11 +230,10 @@ def generate_year(eph, ts, year: int):
             utc_dt = right_dt
             kst_dt = utc_dt.astimezone(KST)
 
-            # ✅ 해당 연도(KST 기준)에 속하는 절기만 채택
+            # 해당 연도(KST 기준)에 속하는 절기만
             if kst_dt.year != year:
                 continue
 
-            # 절기 1개만 필요 → 가장 이른 것 채택
             if best is None or kst_dt < best[0]:
                 best = (kst_dt, utc_dt)
 
@@ -240,7 +251,6 @@ def generate_year(eph, ts, year: int):
             }
         )
 
-    # 시간순 정렬
     results.sort(key=lambda x: x["utc"])
     return results
 
@@ -269,8 +279,6 @@ def generate():
             )
 
         data[str(year)] = year_data
-
-        # ✅ 연도마다 저장(중간에 죽어도 누적 유지)
         _save_json_atomic(OUTPUT_PATH, data)
 
         print(f"[DEBUG] generate_year({year}) returned {len(year_data)} items", flush=True)
