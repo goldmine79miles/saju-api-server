@@ -84,6 +84,13 @@ def _sun_ecl_lon_deg(eph, ts, dt_utc: datetime) -> float:
     return lon % 360.0
 
 
+def _to_utc_aware(dt: datetime) -> datetime:
+    """Skyfield에서 받은 datetime이 naive일 수 있어 UTC aware로 보정."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 # -----------------------------
 # Core: generate_year
 # -----------------------------
@@ -97,12 +104,31 @@ def generate_year(eph, ts, year: int):
       -> 구간 내 교차가 존재하는 k를 찾아 브래킷 형성
     - 이진탐색으로 교차 시각 정밀화
     - KST 기준 year에 속하는 이벤트만 채택
+
+    🔥 중요:
+    - de421 ephemeris 커버리지 하한/상한 밖으로 나가면 EphemerisRangeError 발생.
+    - 따라서 탐색 구간(dt0/dt1)을 eph.coverage 범위로 반드시 클램프한다.
     """
     UTC = timezone.utc
 
-    # 🔥 넉넉한 탐색 구간 (연초/연말 절기 누락 방지)
+    # 원래 의도한 넉넉한 탐색 구간
     dt0 = datetime(year - 2, 12, 1, 0, 0, tzinfo=UTC)
     dt1 = datetime(year + 1, 1, 31, 0, 0, tzinfo=UTC)
+
+    # 🔥 ephemeris coverage로 클램프 (de421: 1899-07-29 ~ 2053-10-09)
+    eph_start_dt = _to_utc_aware(eph.coverage.start.utc_datetime())
+    eph_end_dt = _to_utc_aware(eph.coverage.end.utc_datetime())
+
+    if dt0 < eph_start_dt:
+        dt0 = eph_start_dt
+    if dt1 > eph_end_dt:
+        dt1 = eph_end_dt
+
+    if dt0 >= dt1:
+        raise RuntimeError(
+            f"{year} search range invalid after clamp: dt0={dt0.isoformat()} dt1={dt1.isoformat()} "
+            f"(eph={eph_start_dt.isoformat()}..{eph_end_dt.isoformat()})"
+        )
 
     # 6시간 샘플링
     step = timedelta(hours=6)
