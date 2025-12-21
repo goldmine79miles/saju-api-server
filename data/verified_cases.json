@@ -1,0 +1,68 @@
+{
+  "source": "jeomshin",
+  "timezone": "Asia/Seoul",
+  "rules_locked": {
+    "day_pillar": {
+      "method": "JDN",
+      "offset": 49,
+      "note": "Verified against Jeomshin continuous dates"
+    },
+    "month_pillar": {
+      "rule": "jieqi",
+      "boundary": "switch at next day 00:00 after jieqi",
+      "note": "Jeomshin compatible"
+    },
+    "year_pillar": {
+      "rule": "ipchun",
+      "boundary": "ipchun day keeps previous year, switches next day 00:00",
+      "note": "Jeomshin compatible"
+    },
+    "hour_pillar": {
+      "rule": "shi-chen",
+      "boundary": "Zi hour starts at 23:00",
+      "note": "Standard Jeomshin rule"
+    }
+  },
+  "verified_cases": [
+    {
+      "type": "day_sequence",
+      "calendar": "solar",
+      "cases": [
+        { "date": "1979-08-06", "day_ganji": "乙巳", "index60": 41 },
+        { "date": "1979-08-07", "day_ganji": "丙午", "index60": 42 },
+        { "date": "1979-08-08", "day_ganji": "丁未", "index60": 43 },
+        { "date": "1979-08-09", "day_ganji": "戊申", "index60": 44 },
+        { "date": "1979-08-10", "day_ganji": "己酉", "index60": 45 },
+        { "date": "1979-08-11", "day_ganji": "庚戌", "index60": 46 },
+        { "date": "1979-08-12", "day_ganji": "辛亥", "index60": 47 }
+      ]
+    },
+    {
+      "type": "hour_boundary",
+      "calendar": "solar",
+      "date": "1979-08-12",
+      "cases": [
+        { "time": "22:59", "hour_ganji": "己亥" },
+        { "time": "23:00", "hour_ganji": "戊子" },
+        { "time": "00:59", "hour_ganji": "戊子" },
+        { "time": "01:00", "hour_ganji": "己丑" }
+      ]
+    },
+    {
+      "type": "year_boundary",
+      "calendar": "solar",
+      "cases": [
+        {
+          "datetime": "1979-02-04 10:00",
+          "year_ganji": "戊午",
+          "note": "Before ipchun effective switch"
+        },
+        {
+          "datetime": "1979-02-05 10:00",
+          "year_ganji": "己未",
+          "note": "After ipchun effective switch"
+        }
+      ]
+    }
+  ]
+}
