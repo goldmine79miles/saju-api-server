@@ -13,7 +13,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.7.4"  # jieqi path fix + boot load log
+    version="1.7.5"  # month pillar added (only) + keep jieqi path fix + boot load log
 )
 
 # ==================================================
@@ -207,6 +207,7 @@ def get_jieqi_with_fallback(year: str):
         raise ValueError(f"No jieqi for {year}")
     return "json", True, year_data
 
+
 # =========================
 # Pillars (day/year only)
 # =========================
@@ -227,6 +228,100 @@ def get_day_pillar(dt: date):
 def get_year_pillar(year: int):
     idx = (year - 1984) % 60
     return {"stem": STEMS[idx % 10], "branch": BRANCHES[idx % 12], "ganji": STEMS[idx % 10] + BRANCHES[idx % 12], "index60": idx}
+
+# =========================
+# Pillars (month) - 표준 절기(12절) 기반
+# =========================
+
+# 월지 경계(12절): 이 시각부터 다음 절 전까지가 해당 월지
+MONTH_TERM_TO_BRANCH = [
+    ("입춘", "寅"),
+    ("경칩", "卯"),
+    ("청명", "辰"),
+    ("입하", "巳"),
+    ("망종", "午"),
+    ("소서", "未"),
+    ("입추", "申"),
+    ("백로", "酉"),
+    ("한로", "戌"),
+    ("입동", "亥"),
+    ("대설", "子"),
+    ("소한", "丑"),
+]
+
+# 연간(년간) -> 寅월 월간 시작(표준)
+YEAR_STEM_TO_YIN_MONTH_STEM = {
+    "甲": "丙", "己": "丙",
+    "乙": "戊", "庚": "戊",
+    "丙": "庚", "辛": "庚",
+    "丁": "壬", "壬": "壬",
+    "戊": "甲", "癸": "甲",
+}
+
+MONTH_BRANCH_SEQ = ["寅","卯","辰","巳","午","未","申","酉","戌","亥","子","丑"]
+
+def _jieqi_term_dt_map(jieqi_list):
+    m = {}
+    for item in jieqi_list:
+        name = item.get("name")
+        if not name:
+            continue
+        dt = _pick_item_dt(item)
+        if not dt:
+            continue
+        m[name] = dt
+    return m
+
+def _get_month_branch_from_terms(birth_dt: datetime, this_year_terms: dict, prev_year_terms: dict):
+    """
+    birth_dt (KST) 기준으로 12절 시작 시각 중 '마지막으로 지난 절'을 찾아 월지를 결정.
+    - 1월 초(소한 이전)는 전년도 대설을 사용해야 해서 prev_year_terms 필요.
+    """
+    candidates = []
+
+    for term, branch in MONTH_TERM_TO_BRANCH:
+        dt = this_year_terms.get(term)
+        if dt:
+            candidates.append((dt, branch, term))
+
+    # 1월 초를 위해 전년도 대설(子)을 후보에 추가
+    prev_daeseol = prev_year_terms.get("대설")
+    if prev_daeseol:
+        candidates.append((prev_daeseol, "子", "대설(prev)"))
+
+    # 후보 중 birth_dt 이전(<=)만 남기고, 가장 최근(dt 최대) 선택
+    valid = [c for c in candidates if c[0] <= birth_dt]
+    if not valid:
+        # 그래도 없으면(아주 특이 케이스) 최소한 소한을 기준으로라도 반환
+        # (이 케이스는 사실상 데이터/타임존 문제)
+        return "丑"
+
+    valid.sort(key=lambda x: x[0])
+    return valid[-1][1]  # branch
+
+def get_month_pillar(birth_dt: datetime, saju_year_pillar: dict, jieqi_this_year: list, jieqi_prev_year: list):
+    """
+    표준 절기(12절) 기준 월주 산출.
+    - 월지: 절 시작 시각 경계로 결정
+    - 월간: 연간에 따라 寅월 시작 월간을 정하고 12개월 순행
+    """
+    this_map = _jieqi_term_dt_map(jieqi_this_year)
+    prev_map = _jieqi_term_dt_map(jieqi_prev_year)
+
+    month_branch = _get_month_branch_from_terms(birth_dt, this_map, prev_map)
+
+    year_stem = saju_year_pillar["stem"]
+    yin_month_stem = YEAR_STEM_TO_YIN_MONTH_STEM.get(year_stem)
+    if not yin_month_stem:
+        raise ValueError(f"Invalid year stem for month pillar: {year_stem}")
+
+    month_index = MONTH_BRANCH_SEQ.index(month_branch)  # 寅=0 ... 丑=11
+    stem_index = (STEMS.index(yin_month_stem) + month_index) % 10
+    month_stem = STEMS[stem_index]
+
+    # month branch(한자 지지)를 BRANCHES 배열 기준으로 index60 계산(월주는 60갑자도 쓰지만 여기선 stem/branch/ganji까지만)
+    return {"stem": month_stem, "branch": month_branch, "ganji": month_stem + month_branch}
+
 
 # =========================
 # API
@@ -325,9 +420,14 @@ def calc_saju(
         year_pillar = get_year_pillar(saju_year)
         day_pillar = get_day_pillar(birth_dt.date())
 
+        # ✅ 월주만 추가 (표준 절기 12절 기반)
+        # 1월 초(소한 이전)는 전년도 대설이 필요할 수 있어 prev year 절기도 로드
+        _, _, jieqi_prev = get_jieqi_with_fallback(str(birth_dt.year - 1))
+        month_pillar = get_month_pillar(birth_dt, year_pillar, jieqi_this, jieqi_prev)
+
         result = {
             "input": {"birth": birth, "calendar": calendar, "birth_time": birth_time, "gender": gender},
-            "pillars": {"year": year_pillar, "month": None, "day": day_pillar, "hour": None},
+            "pillars": {"year": year_pillar, "month": month_pillar, "day": day_pillar, "hour": None},
             "jieqi": {"year": str(birth_dt.year), "count": len(jieqi_this), "items": jieqi_this},
             "meta": {
                 "version": "v1",
