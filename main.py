@@ -71,12 +71,15 @@ def get_jieqi_with_fallback(year: str):
         raise ValueError(f"No jieqi for {year}")
     return "json", True, year_data
 
-# =========================
+# ============================
 # Pillars (day/year)
-# =========================
+# ============================
 
 STEMS = ["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"]
 BRANCHES = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
+
+# 🔒 LOCKED: Jeomshin verified day pillar offset
+DAY_PILLAR_JDN_OFFSET = 49  # 절대 수정 금지
 
 def gregorian_to_jdn(y, m, d):
     a = (14 - m) // 12
@@ -85,8 +88,7 @@ def gregorian_to_jdn(y, m, d):
     return d + (153*m2+2)//5 + 365*y2 + y2//4 - y2//100 + y2//400 - 32045
 
 def get_day_pillar(dt: date):
-    # ✅ FIX: +47 → +49 (점신/시중 만세력 기준 일주 연속과 일치)
-    idx = (gregorian_to_jdn(dt.year, dt.month, dt.day) + 49) % 60
+    idx = (gregorian_to_jdn(dt.year, dt.month, dt.day) + DAY_PILLAR_JDN_OFFSET) % 60
     return {
         "stem": STEMS[idx % 10],
         "branch": BRANCHES[idx % 12],
