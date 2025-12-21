@@ -1,5 +1,5 @@
 # tools/generate_jieqi_table.py
-# JIEQI_GENERATOR_VERSION=skyfield_root_finding_final_segment_coverage
+# JIEQI_GENERATOR_VERSION=skyfield_root_finding_final_hardcoded_de421_bounds
 
 import json
 import os
@@ -18,6 +18,12 @@ OUTPUT_PATH = os.getenv("JIEQI_OUTPUT", os.path.join("data", "jieqi_1900_2052.js
 APPEND = os.getenv("JIEQI_APPEND", "true").lower() in ("1", "true", "yes", "y")
 
 KST = timezone(timedelta(hours=9))
+
+# de421.bsp Skyfield error message bounds (hard-coded for compatibility)
+# "ephemeris segment only covers dates 1899-07-29 through 2053-10-09"
+DE421_START_UTC = (1899, 7, 29, 0, 0, 0)
+DE421_END_UTC = (2053, 10, 9, 0, 0, 0)
+COVERAGE_SAFETY_DAYS = 2.0  # keep away from edges (TT/TDB boundary jitter)
 
 # 24절기: 태양 황경 기준(도)
 JIEQI_24 = [
@@ -86,29 +92,9 @@ def _sun_ecl_lon_deg(eph, ts, dt_utc: datetime) -> float:
 
 
 def _to_utc_aware(dt: datetime) -> datetime:
-    """Ensure timezone-aware UTC datetime."""
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
-
-
-def _ephemeris_coverage_time(eph):
-    """
-    SpiceKernel 환경에서 eph.coverage 가 없을 수 있어서
-    spk.segments에서 커버리지(Time)를 직접 계산한다.
-    """
-    segs = None
-    if hasattr(eph, "spk") and hasattr(eph.spk, "segments"):
-        segs = eph.spk.segments
-    elif hasattr(eph, "segments"):
-        segs = eph.segments
-
-    if not segs:
-        raise RuntimeError("Cannot determine ephemeris coverage: no segments found")
-
-    start_t = min(seg.start_time for seg in segs)
-    end_t = max(seg.end_time for seg in segs)
-    return start_t, end_t
 
 
 # -----------------------------
@@ -118,13 +104,12 @@ def generate_year(eph, ts, year: int):
     """
     안정형 절기 생성기
     - 넉넉한 탐색 구간 + 6시간 샘플링 + unwrap
-    - deg + 360*k 후보 전부 탐색하여 교차 브래킷 구성 후 이진 탐색
+    - deg + 360*k 후보 전부 탐색 → 교차 브래킷 → 이진 탐색
     - KST 기준 year에 속하는 절기만 채택
 
     🔥 중요:
-    - ephemeris 범위 체크는 TT 기준이라 경계에서 튕길 수 있음.
-    - SpiceKernel에 eph.coverage가 없을 수 있으므로 segments로 커버리지 계산.
-    - dt0/dt1는 Time(tt) 비교로 클램프 + 안전 마진(일 단위) 적용.
+    - Codespaces/skyfield 환경에서 eph.coverage/segment 속성이 제각각이라
+      de421의 커버리지 경계를 "하드코딩"해서 TT 기준으로 클램프한다.
     """
     UTC = timezone.utc
 
@@ -132,19 +117,18 @@ def generate_year(eph, ts, year: int):
     dt0 = datetime(year - 2, 12, 1, 0, 0, tzinfo=UTC)
     dt1 = datetime(year + 1, 1, 31, 0, 0, tzinfo=UTC)
 
-    # ✅ 커버리지(Time) 계산 (segments 기반)
-    eph_start_t, eph_end_t = _ephemeris_coverage_time(eph)
+    # de421 커버리지(Time)
+    eph_start_t = ts.utc(*DE421_START_UTC)
+    eph_end_t = ts.utc(*DE421_END_UTC)
 
-    # ✅ TT 기준 비교 + 안전마진(일)
-    safety_days = 2.0  # float days
-
+    # TT 기준 비교 + 안전마진(일)
     t0 = ts.from_datetime(dt0)
     t1 = ts.from_datetime(dt1)
 
     if t0.tt < eph_start_t.tt:
-        dt0 = _to_utc_aware((eph_start_t + safety_days).utc_datetime())
+        dt0 = _to_utc_aware((eph_start_t + COVERAGE_SAFETY_DAYS).utc_datetime())
     if t1.tt > eph_end_t.tt:
-        dt1 = _to_utc_aware((eph_end_t - safety_days).utc_datetime())
+        dt1 = _to_utc_aware((eph_end_t - COVERAGE_SAFETY_DAYS).utc_datetime())
 
     if dt0 >= dt1:
         raise RuntimeError(
@@ -202,14 +186,11 @@ def generate_year(eph, ts, year: int):
 
             def f(dt: datetime) -> float:
                 l0 = _sun_ecl_lon_deg(eph, ts, dt)  # 0~360
-                # target 근처 연속값으로 매핑
-                l_cont = l0 + 360.0 * round((target - l0) / 360.0)
+                l_cont = l0 + 360.0 * round((target - l0) / 360.0)  # target 근처 연속값
                 return l_cont - target
 
             fl = f(left_dt)
             fr = f(right_dt)
-
-            # 브래킷 실패면 스킵
             if fl * fr > 0:
                 continue
 
@@ -230,7 +211,6 @@ def generate_year(eph, ts, year: int):
             utc_dt = right_dt
             kst_dt = utc_dt.astimezone(KST)
 
-            # 해당 연도(KST 기준)에 속하는 절기만
             if kst_dt.year != year:
                 continue
 
@@ -241,7 +221,6 @@ def generate_year(eph, ts, year: int):
             raise RuntimeError(f"{year} {name} not found")
 
         kst_dt, utc_dt = best
-
         results.append(
             {
                 "name": name,
