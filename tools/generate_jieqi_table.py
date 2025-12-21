@@ -47,6 +47,7 @@ JIEQI_24 = [
     ("동지", 270),
 ]
 
+
 # -----------------------------
 # Helpers
 # -----------------------------
@@ -85,7 +86,7 @@ def _sun_ecl_lon_deg(eph, ts, dt_utc: datetime) -> float:
 
 
 def _to_utc_aware(dt: datetime) -> datetime:
-    """Skyfield에서 받은 datetime이 naive일 수 있어 UTC aware로 보정."""
+    """Ensure timezone-aware UTC datetime."""
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
@@ -106,28 +107,36 @@ def generate_year(eph, ts, year: int):
     - KST 기준 year에 속하는 이벤트만 채택
 
     🔥 중요:
-    - de421 ephemeris 커버리지 하한/상한 밖으로 나가면 EphemerisRangeError 발생.
-    - 따라서 탐색 구간(dt0/dt1)을 eph.coverage 범위로 반드시 클램프한다.
+    - Skyfield는 ephemeris 범위를 TT 기준으로 체크함.
+    - datetime으로 "경계값"을 맞춰도 TT 변환에서 튕길 수 있음.
+    - 그래서 dt0/dt1을 eph.coverage(start/end)로 "Time(tt) 비교"로 클램프 + 안전마진 필요.
     """
     UTC = timezone.utc
 
-    # 원래 의도한 넉넉한 탐색 구간
+    # 🔥 넉넉한 탐색 구간 (연초/연말 절기 누락 방지)
     dt0 = datetime(year - 2, 12, 1, 0, 0, tzinfo=UTC)
     dt1 = datetime(year + 1, 1, 31, 0, 0, tzinfo=UTC)
 
-    # 🔥 ephemeris coverage로 클램프 (de421: 1899-07-29 ~ 2053-10-09)
-    eph_start_dt = _to_utc_aware(eph.coverage.start.utc_datetime())
-    eph_end_dt = _to_utc_aware(eph.coverage.end.utc_datetime())
+    # 🔥 ephemeris coverage로 클램프 (Time 기준 + 안전 마진)
+    # - Skyfield는 TT 기준으로 범위를 체크하므로 datetime 비교만으로는 경계에서 튕길 수 있음
+    # - 경계 떨림 방지: start는 +2일, end는 -2일 안전 마진
+    eph_start_t = eph.coverage.start
+    eph_end_t = eph.coverage.end
 
-    if dt0 < eph_start_dt:
-        dt0 = eph_start_dt
-    if dt1 > eph_end_dt:
-        dt1 = eph_end_dt
+    t0 = ts.from_datetime(dt0)
+    t1 = ts.from_datetime(dt1)
+
+    safety = timedelta(days=2)
+
+    if t0.tt < eph_start_t.tt:
+        dt0 = _to_utc_aware((eph_start_t + safety).utc_datetime())
+    if t1.tt > eph_end_t.tt:
+        dt1 = _to_utc_aware((eph_end_t - safety).utc_datetime())
 
     if dt0 >= dt1:
         raise RuntimeError(
             f"{year} search range invalid after clamp: dt0={dt0.isoformat()} dt1={dt1.isoformat()} "
-            f"(eph={eph_start_dt.isoformat()}..{eph_end_dt.isoformat()})"
+            f"(eph={_to_utc_aware(eph_start_t.utc_datetime()).isoformat()}..{_to_utc_aware(eph_end_t.utc_datetime()).isoformat()})"
         )
 
     # 6시간 샘플링
@@ -192,7 +201,7 @@ def generate_year(eph, ts, year: int):
             if fl * fr > 0:
                 continue
 
-            # 이진 탐색 (충분히)
+            # 이진 탐색
             for _ in range(60):
                 mid_dt = left_dt + (right_dt - left_dt) / 2
                 fm = f(mid_dt)
