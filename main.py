@@ -210,10 +210,13 @@ def calc_saju(
 ):
     birth_date = datetime.strptime(birth, "%Y-%m-%d")
 
-    if birth_time != "unknown":
-        hh, mm = map(int, birth_time.split(":"))
+    bt = (birth_time or "").strip().lower()
+    if bt and bt not in ("unknown", "null", "none"):
+        hh, mm = map(int, bt.split(":"))
+        has_time = True
     else:
         hh, mm = 0, 0
+        has_time = False
 
     birth_dt = datetime(
         birth_date.year, birth_date.month, birth_date.day,
@@ -230,7 +233,7 @@ def calc_saju(
     _, _, jieqi_prev = get_jieqi_with_fallback(str(birth_dt.year - 1))
     month_pillar = get_month_pillar(birth_dt, year_pillar, jieqi_this, jieqi_prev)
 
-    hour_pillar = get_hour_pillar(day_pillar, hh, mm) if birth_time != "unknown" else None
+    hour_pillar = get_hour_pillar(day_pillar, hh, mm) if has_time else None
 
     return {
         "input": {
