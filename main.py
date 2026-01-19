@@ -13,7 +13,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.7.8"  # ✅ day pillar offset fix (+48) to match common almanac
+    version="1.7.9"  # month pillar boundary fix (jieqi exact time)
 )
 
 # ==================================================
@@ -78,8 +78,8 @@ def get_jieqi_with_fallback(year: str):
 STEMS = ["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"]
 BRANCHES = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
 
-# 🔒 LOCKED: Jeomshin verified day pillar offset
-DAY_PILLAR_JDN_OFFSET = 49  # 절대 수정 금지
+# 🔒 LOCKED
+DAY_PILLAR_JDN_OFFSET = 49
 
 def gregorian_to_jdn(y, m, d):
     a = (14 - m) // 12
@@ -106,7 +106,7 @@ def get_year_pillar(year: int):
     }
 
 # =========================
-# Month pillar (점신식 날짜 경계)
+# Month pillar (정석: 절기 도달 시각 기준)
 # =========================
 
 MONTH_TERM_TO_BRANCH = [
@@ -135,19 +135,16 @@ def _jieqi_term_dt_map(jieqi_list):
     return m
 
 def _get_month_branch_from_terms(birth_dt, this_year_terms, prev_year_terms):
-    def boundary_next_midnight(dt):
-        d = dt.astimezone(KST).date() + timedelta(days=1)
-        return datetime(d.year, d.month, d.day, 0, 0, tzinfo=KST)
-
     candidates = []
+
     for term, branch in MONTH_TERM_TO_BRANCH:
         dt = this_year_terms.get(term)
         if dt:
-            candidates.append((boundary_next_midnight(dt), branch))
+            candidates.append((dt, branch))
 
     prev_daeseol = prev_year_terms.get("대설")
     if prev_daeseol:
-        candidates.append((boundary_next_midnight(prev_daeseol), "子"))
+        candidates.append((prev_daeseol, "子"))
 
     valid = [c for c in candidates if c[0] <= birth_dt]
     if not valid:
@@ -172,7 +169,7 @@ def get_month_pillar(birth_dt, saju_year_pillar, jieqi_this_year, jieqi_prev_yea
     return {"stem": month_stem, "branch": month_branch, "ganji": month_stem + month_branch}
 
 # =========================
-# Hour pillar
+# Hour pillar (이미 정석)
 # =========================
 
 HOUR_BRANCH_SEQ = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
@@ -248,7 +245,6 @@ def calc_saju(
             "day": day_pillar,
             "hour": hour_pillar
         },
-        "jieqi": jieqi_this,
         "debug": {
             "timezone": "KST",
             "saju_year": saju_year
