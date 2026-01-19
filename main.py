@@ -9,7 +9,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.7.12"  # ✅ Seoul fixed offset(-32m) + Month pillar by Junggi(중기) boundary
+    version="1.7.13"  # ✅ FINAL: Month by 절(節), -32m ONLY for hour
 )
 
 # ==================================================
@@ -28,9 +28,9 @@ KST = ZoneInfo("Asia/Seoul")
 UTC = timezone.utc
 
 # ==================================================
-# CONFIG (Jeomshin mode)
+# CONFIG
 # ==================================================
-SEOUL_FIXED_OFFSET_MINUTES = 32  # ✅ always subtract 32 minutes (when time exists)
+SEOUL_FIXED_OFFSET_MINUTES = 32  # 시주 전용 보정
 
 # =========================
 # Jieqi helpers
@@ -42,11 +42,6 @@ def load_jieqi_table():
         return json.load(f)
 
 def _parse_dt_any(value, assume_tz):
-    """
-    - "utc" field missing tzinfo -> assume UTC
-    - "kst" field missing tzinfo -> assume KST
-    - normalize to KST
-    """
     if value is None:
         return None
     if isinstance(value, str):
@@ -58,7 +53,6 @@ def _parse_dt_any(value, assume_tz):
     return None
 
 def _pick_item_dt(item):
-    # prefer kst if present
     if "kst" in item:
         dt = _parse_dt_any(item.get("kst"), KST)
         if dt:
@@ -74,7 +68,7 @@ def get_jieqi_with_fallback(year: str):
     year_data = table.get(year)
     if not year_data:
         raise ValueError(f"No jieqi for {year}")
-    return "json", True, year_data
+    return year_data
 
 def find_ipchun_dt(jieqi_list):
     for item in jieqi_list:
@@ -99,7 +93,6 @@ def _jieqi_term_dt_map(jieqi_list):
 STEMS = ["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"]
 BRANCHES = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
 
-# 🔒 LOCKED
 DAY_PILLAR_JDN_OFFSET = 49
 
 def gregorian_to_jdn(y, m, d):
@@ -127,24 +120,21 @@ def get_year_pillar(year: int):
     }
 
 # =========================
-# Month pillar (중기 기준: 절기 도달 시각 즉시)
+# Month pillar (절 기준, 즉시 변경)
 # =========================
-# ✅ 12 "중기" boundary -> month branch
-# 寅: 우수, 卯: 춘분, 辰: 곡우, 巳: 소만, 午: 하지, 未: 대서,
-# 申: 처서, 酉: 추분, 戌: 상강, 亥: 소설, 子: 동지, 丑: 대한
-JUNGGI_TO_BRANCH = [
-    ("우수", "寅"),
-    ("춘분", "卯"),
-    ("곡우", "辰"),
-    ("소만", "巳"),
-    ("하지", "午"),
-    ("대서", "未"),
-    ("처서", "申"),
-    ("추분", "酉"),
-    ("상강", "戌"),
-    ("소설", "亥"),
-    ("동지", "子"),
-    ("대한", "丑"),
+MONTH_TERM_TO_BRANCH = [
+    ("입춘", "寅"),
+    ("경칩", "卯"),
+    ("청명", "辰"),
+    ("입하", "巳"),
+    ("망종", "午"),
+    ("소서", "未"),
+    ("입추", "申"),
+    ("백로", "酉"),
+    ("한로", "戌"),
+    ("입동", "亥"),
+    ("대설", "子"),
+    ("소한", "丑"),
 ]
 
 YEAR_STEM_TO_YIN_MONTH_STEM = {
@@ -157,33 +147,30 @@ YEAR_STEM_TO_YIN_MONTH_STEM = {
 
 MONTH_BRANCH_SEQ = ["寅","卯","辰","巳","午","未","申","酉","戌","亥","子","丑"]
 
-def _get_month_branch_by_junggi(calc_dt, this_year_terms, prev_year_terms):
+def _get_month_branch_by_jul(input_dt, this_year_terms, prev_year_terms):
     candidates = []
 
-    # boundaries in this year
-    for term, branch in JUNGGI_TO_BRANCH:
+    for term, branch in MONTH_TERM_TO_BRANCH:
         dt = this_year_terms.get(term)
         if dt:
             candidates.append((dt, branch))
 
-    # carry over last year's "대한" for 丑월 start
-    prev_daehan = prev_year_terms.get("대한")
-    if prev_daehan:
-        candidates.append((prev_daehan, "丑"))
+    prev_daeseol = prev_year_terms.get("대설")
+    if prev_daeseol:
+        candidates.append((prev_daeseol, "子"))
 
-    valid = [c for c in candidates if c[0] <= calc_dt]
+    valid = [c for c in candidates if c[0] <= input_dt]
     if not valid:
-        # before first junggi(우수) => treat as 丑
         return "丑"
 
     valid.sort(key=lambda x: x[0])
     return valid[-1][1]
 
-def get_month_pillar(calc_dt, saju_year_pillar, jieqi_this_year, jieqi_prev_year):
+def get_month_pillar(input_dt, saju_year_pillar, jieqi_this_year, jieqi_prev_year):
     this_map = _jieqi_term_dt_map(jieqi_this_year)
     prev_map = _jieqi_term_dt_map(jieqi_prev_year)
 
-    month_branch = _get_month_branch_by_junggi(calc_dt, this_map, prev_map)
+    month_branch = _get_month_branch_by_jul(input_dt, this_map, prev_map)
 
     year_stem = saju_year_pillar["stem"]
     yin_month_stem = YEAR_STEM_TO_YIN_MONTH_STEM[year_stem]
@@ -195,7 +182,7 @@ def get_month_pillar(calc_dt, saju_year_pillar, jieqi_this_year, jieqi_prev_year
     return {"stem": month_stem, "branch": month_branch, "ganji": month_stem + month_branch}
 
 # =========================
-# Hour pillar (정석: 23:00 자시)
+# Hour pillar (23:00 자시, -32분 적용)
 # =========================
 HOUR_BRANCH_SEQ = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
 
@@ -239,25 +226,22 @@ def calc_saju(
         hh, mm = 0, 0
         has_time = False
 
-    # input datetime (KST)
     input_dt = datetime(
         birth_date.year, birth_date.month, birth_date.day,
         hh, mm, tzinfo=KST
     )
 
-    # ✅ fixed "Seoul -32m" correction ONLY when time exists
     calc_dt = input_dt - timedelta(minutes=SEOUL_FIXED_OFFSET_MINUTES) if has_time else input_dt
 
-    # jieqi by calc year (important near year boundary)
-    _, _, jieqi_this = get_jieqi_with_fallback(str(calc_dt.year))
+    jieqi_this = get_jieqi_with_fallback(str(input_dt.year))
     ipchun_dt = find_ipchun_dt(jieqi_this)
-    saju_year = calc_dt.year if calc_dt >= ipchun_dt else calc_dt.year - 1
+    saju_year = input_dt.year if input_dt >= ipchun_dt else input_dt.year - 1
 
     year_pillar = get_year_pillar(saju_year)
-    day_pillar = get_day_pillar(calc_dt.date())
+    day_pillar = get_day_pillar(input_dt.date())
 
-    _, _, jieqi_prev = get_jieqi_with_fallback(str(calc_dt.year - 1))
-    month_pillar = get_month_pillar(calc_dt, year_pillar, jieqi_this, jieqi_prev)
+    jieqi_prev = get_jieqi_with_fallback(str(input_dt.year - 1))
+    month_pillar = get_month_pillar(input_dt, year_pillar, jieqi_this, jieqi_prev)
 
     hour_pillar = get_hour_pillar(day_pillar, calc_dt.hour, calc_dt.minute) if has_time else None
 
