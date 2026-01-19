@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 import json
 import os
@@ -13,7 +13,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.7.10"  # month pillar boundary fix (Jeomshin-style: next-day 00:00)
+    version="1.7.11"  # month pillar fix: jeomshin-style boundary + correct utc/kst parsing
 )
 
 # ==================================================
@@ -30,6 +30,7 @@ TOOLS_DIR = PROJECT_ROOT / "tools"
 
 JIEQI_TABLE_PATH = DATA_DIR / "jieqi_1900_2052.json"
 KST = ZoneInfo("Asia/Seoul")
+UTC = timezone.utc
 
 # =========================
 # Jieqi helpers
@@ -41,21 +42,33 @@ def load_jieqi_table():
     with JIEQI_TABLE_PATH.open("r", encoding="utf-8") as f:
         return json.load(f)
 
-def _parse_dt_any(value):
+def _parse_dt_any(value, assume_tz):
+    """
+    핵심:
+    - "utc" 필드가 tzinfo 없는 문자열로 오면 UTC로 가정해야 함
+    - "kst" 필드가 tzinfo 없는 문자열로 오면 KST로 가정해야 함
+    - 마지막은 항상 KST로 정규화
+    """
     if value is None:
         return None
     if isinstance(value, str):
         s = value.replace("Z", "+00:00")
         dt = datetime.fromisoformat(s)
-        return dt.astimezone(KST) if dt.tzinfo else dt.replace(tzinfo=KST)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=assume_tz)
+        return dt.astimezone(KST)
     return None
 
 def _pick_item_dt(item):
-    for k in ("kst", "utc"):
-        if k in item:
-            dt = _parse_dt_any(item.get(k))
-            if dt:
-                return dt
+    # 우선 kst를 신뢰 (있으면), 없으면 utc
+    if "kst" in item:
+        dt = _parse_dt_any(item.get("kst"), KST)
+        if dt:
+            return dt
+    if "utc" in item:
+        dt = _parse_dt_any(item.get("utc"), UTC)
+        if dt:
+            return dt
     return None
 
 def find_ipchun_dt(jieqi_list):
@@ -141,6 +154,8 @@ def _get_month_branch_from_terms(birth_dt, this_year_terms, prev_year_terms):
         return datetime(d.year, d.month, d.day, 0, 0, tzinfo=KST)
 
     candidates = []
+
+    # 당해 절기 경계들
     for term, branch in MONTH_TERM_TO_BRANCH:
         dt = this_year_terms.get(term)
         if dt:
