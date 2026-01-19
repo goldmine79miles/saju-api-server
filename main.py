@@ -13,7 +13,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.7.9"  # month pillar boundary fix (jieqi exact time)
+    version="1.7.10"  # month pillar boundary fix (Jeomshin-style: next-day 00:00)
 )
 
 # ==================================================
@@ -106,7 +106,7 @@ def get_year_pillar(year: int):
     }
 
 # =========================
-# Month pillar (정석: 절기 도달 시각 기준)
+# Month pillar (점신식: 절기 '다음날 00:00'부터 월 변경)
 # =========================
 
 MONTH_TERM_TO_BRANCH = [
@@ -135,16 +135,21 @@ def _jieqi_term_dt_map(jieqi_list):
     return m
 
 def _get_month_branch_from_terms(birth_dt, this_year_terms, prev_year_terms):
-    candidates = []
+    # ✅ 절기 발생 "다음날 00:00"을 월 경계로 사용
+    def boundary_next_midnight(dt):
+        d = dt.astimezone(KST).date() + timedelta(days=1)
+        return datetime(d.year, d.month, d.day, 0, 0, tzinfo=KST)
 
+    candidates = []
     for term, branch in MONTH_TERM_TO_BRANCH:
         dt = this_year_terms.get(term)
         if dt:
-            candidates.append((dt, branch))
+            candidates.append((boundary_next_midnight(dt), branch))
 
+    # 전년도 대설 다음날 00:00부터 子월
     prev_daeseol = prev_year_terms.get("대설")
     if prev_daeseol:
-        candidates.append((prev_daeseol, "子"))
+        candidates.append((boundary_next_midnight(prev_daeseol), "子"))
 
     valid = [c for c in candidates if c[0] <= birth_dt]
     if not valid:
