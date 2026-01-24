@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query
+create_file("/mnt/user-data/outputs/main.py", """from fastapi import FastAPI, Query
 from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 import json
@@ -9,7 +9,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.8.1"  # ✅ Fixed PDF token issue
+    version="1.8.2"  # ✅ Fixed PDF background/logo with pypdf
 )
 
 # ==================================================
@@ -30,7 +30,7 @@ UTC = timezone.utc
 # ==================================================
 # CONFIG
 # ==================================================
-SEOUL_FIXED_OFFSET_MINUTES = 32  # 시주 전용 보정
+SEOUL_FIXED_OFFSET_MINUTES = 32
 
 # =========================
 # Jieqi helpers
@@ -120,7 +120,7 @@ def get_year_pillar(year: int):
     }
 
 # =========================
-# Month pillar (절 기준, 즉시 변경)
+# Month pillar
 # =========================
 MONTH_TERM_TO_BRANCH = [
     ("입춘", "寅"),
@@ -149,40 +149,32 @@ MONTH_BRANCH_SEQ = ["寅","卯","辰","巳","午","未","申","酉","戌","亥",
 
 def _get_month_branch_by_jul(input_dt, this_year_terms, prev_year_terms):
     candidates = []
-
     for term, branch in MONTH_TERM_TO_BRANCH:
         dt = this_year_terms.get(term)
         if dt:
             candidates.append((dt, branch))
-
     prev_daeseol = prev_year_terms.get("대설")
     if prev_daeseol:
         candidates.append((prev_daeseol, "子"))
-
     valid = [c for c in candidates if c[0] <= input_dt]
     if not valid:
         return "丑"
-
     valid.sort(key=lambda x: x[0])
     return valid[-1][1]
 
 def get_month_pillar(input_dt, saju_year_pillar, jieqi_this_year, jieqi_prev_year):
     this_map = _jieqi_term_dt_map(jieqi_this_year)
     prev_map = _jieqi_term_dt_map(jieqi_prev_year)
-
     month_branch = _get_month_branch_by_jul(input_dt, this_map, prev_map)
-
     year_stem = saju_year_pillar["stem"]
     yin_month_stem = YEAR_STEM_TO_YIN_MONTH_STEM[year_stem]
-
     month_index = MONTH_BRANCH_SEQ.index(month_branch)
     stem_index = (STEMS.index(yin_month_stem) + month_index) % 10
     month_stem = STEMS[stem_index]
-
     return {"stem": month_stem, "branch": month_branch, "ganji": month_stem + month_branch}
 
 # =========================
-# Hour pillar (23:00 자시, -32분 적용)
+# Hour pillar
 # =========================
 HOUR_BRANCH_SEQ = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
 
@@ -274,13 +266,20 @@ def calc_saju(
 from fastapi import HTTPException
 from fastapi.responses import Response
 from playwright.async_api import async_playwright
+from pypdf import PdfReader, PdfWriter
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from io import BytesIO
+import requests
 
 @app.get("/api/pdf/generate")
 async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
-    """Generate PDF from web report with token"""
+    \"\"\"Generate PDF with background and logo using pypdf\"\"\"
     try:
-        # 토큰을 포함한 URL
+        # 절대 URL
         url = f"https://saju-baksa.com/report/{rid}?t={token}&print=1"
+        bg_url = "https://saju-baksa.com/report-bg.png"
+        logo_url = "https://saju-baksa.com/logo-text.svg"
         
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -291,95 +290,141 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             await page.goto(url, wait_until="networkidle", timeout=60000)
             await page.wait_for_timeout(3000)
             
-            # JavaScript로 PDF 스타일 강제 적용
-            await page.evaluate("""
-                // 표지와 본문 강제 분리
+            # CSS로 페이지 분할 강제
+            await page.evaluate(\"\"\"
+                // 스타일 강제 주입
+                const style = document.createElement('style');
+                style.textContent = `
+                    @page {
+                        size: A4;
+                        margin: 0;
+                    }
+                    
+                    .report-cover {
+                        page-break-after: always !important;
+                        break-after: page !important;
+                        height: 100vh !important;
+                        min-height: 297mm !important;
+                    }
+                    
+                    .report-container {
+                        page-break-before: always !important;
+                        break-before: page !important;
+                    }
+                    
+                    .report-container > section,
+                    .report-container > div {
+                        page-break-inside: avoid !important;
+                        break-inside: avoid !important;
+                    }
+                    
+                    * {
+                        -webkit-print-color-adjust: exact !important;
+                        print-color-adjust: exact !important;
+                    }
+                `;
+                document.head.appendChild(style);
+                
+                // 표지 분리
                 const cover = document.querySelector('.report-cover');
                 if (cover) {
                     cover.style.pageBreakAfter = 'always';
                     cover.style.breakAfter = 'page';
-                    // 표지는 자체 배경 사용
-                    cover.style.background = 'transparent';
                 }
-                
-                // 본문 컨테이너 여백
-                const container = document.querySelector('.report-container');
-                if (container) {
-                    container.style.paddingTop = '25mm';  // 상단 여백 증가
-                    container.style.paddingBottom = '30mm';
-                    container.style.pageBreakBefore = 'always';
-                }
-                
-                // 본문에만 배경 적용 (표지 제외)
-                if (container) {
-                    container.style.backgroundImage = 'url(/report-bg.png)';
-                    container.style.backgroundSize = 'cover';
-                    container.style.backgroundRepeat = 'no-repeat';
-                    container.style.backgroundAttachment = 'fixed';
-                }
-                
-                // 색상 정확도 강제
-                document.documentElement.style.webkitPrintColorAdjust = 'exact';
-                document.documentElement.style.printColorAdjust = 'exact';
-                
-                // 하단 로고를 HTML 요소로 직접 생성 (CSS ::after 대신)
-                const pages = document.querySelectorAll('.report-container > section, .report-container > div');
-                pages.forEach((section, index) => {
-                    const logo = document.createElement('div');
-                    logo.style.cssText = `
-                        position: relative;
-                        width: 100%;
-                        height: 30px;
-                        margin-top: 20px;
-                        text-align: center;
-                        page-break-inside: avoid;
-                    `;
-                    logo.innerHTML = `
-                        <img src="/logo-text.svg" style="width: 80px; height: 24px; opacity: 0.6;" />
-                    `;
-                    section.appendChild(logo);
-                });
-                
-                // 마지막 페이지 로고 추가
-                const lastSection = document.querySelector('.report-container > section:last-child, .report-container > div:last-child');
-                if (lastSection) {
-                    const finalLogo = document.createElement('div');
-                    finalLogo.style.cssText = `
-                        width: 100%;
-                        text-align: center;
-                        padding: 40px 0;
-                        page-break-inside: avoid;
-                    `;
-                    finalLogo.innerHTML = `
-                        <img src="/logo-text.svg" style="width: 80px; height: 24px; opacity: 0.6;" />
-                    `;
-                    lastSection.appendChild(finalLogo);
-                }
-            """)
+            \"\"\")
             
             await page.wait_for_timeout(1000)
             
+            # 1단계: Playwright로 텍스트만 PDF 생성 (배경 끄고)
             pdf_bytes = await page.pdf(
                 format="A4",
-                print_background=True,
-                margin={
-                    "top": "20mm",
-                    "bottom": "25mm",
-                    "left": "15mm",
-                    "right": "15mm"
-                },
-                prefer_css_page_size=False
+                print_background=False,  # 배경 끄기
+                margin={"top": "0", "bottom": "0", "left": "0", "right": "0"},
+                prefer_css_page_size=True
             )
             
             await browser.close()
-            
-            return Response(
-                content=pdf_bytes,
-                media_type="application/pdf",
-                headers={
-                    "Content-Disposition": f"attachment; filename=report-{rid}.pdf"
-                }
-            )
-            
+        
+        # 2단계: pypdf로 배경/로고 추가
+        pdf_bytes = add_background_and_logo(pdf_bytes, bg_url, logo_url)
+        
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=report-{rid}.pdf"
+            }
+        )
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
+    \"\"\"pypdf로 배경 이미지와 로고 추가\"\"\"
+    from PIL import Image
+    
+    # 원본 PDF 읽기
+    original_pdf = PdfReader(BytesIO(original_pdf_bytes))
+    output = PdfWriter()
+    
+    # 배경 이미지 다운로드
+    try:
+        bg_response = requests.get(bg_url, timeout=10)
+        bg_image = Image.open(BytesIO(bg_response.content))
+    except:
+        bg_image = None
+    
+    page_width, page_height = A4  # 595.27 x 841.89 points
+    
+    for page_num in range(len(original_pdf.pages)):
+        page = original_pdf.pages[page_num]
+        
+        # 표지(1페이지)는 건너뛰기
+        if page_num == 0:
+            output.add_page(page)
+            continue
+        
+        # 배경 레이어 생성
+        packet = BytesIO()
+        can = canvas.Canvas(packet, pagesize=A4)
+        
+        # 배경 이미지 full bleed
+        if bg_image:
+            # 임시 파일로 저장
+            temp_bg = BytesIO()
+            bg_image.save(temp_bg, format='PNG')
+            temp_bg.seek(0)
+            
+            can.drawImage(
+                temp_bg,
+                0, 0,  # 좌하단 기준
+                width=page_width,
+                height=page_height,
+                preserveAspectRatio=False,
+                mask='auto'
+            )
+        
+        # 로고 하단 중앙 (텍스트로 대체)
+        can.setFont("Helvetica", 8)
+        can.setFillColorRGB(0.5, 0.5, 0.5)
+        can.drawCentredString(page_width / 2, 30, "사주박사")
+        
+        can.save()
+        
+        # 배경 PDF 생성
+        packet.seek(0)
+        bg_pdf = PdfReader(packet)
+        bg_page = bg_pdf.pages[0]
+        
+        # 원본 페이지 위에 배경 머지
+        bg_page.merge_page(page)
+        output.add_page(bg_page)
+    
+    # 최종 PDF 생성
+    final_pdf = BytesIO()
+    output.write(final_pdf)
+    final_pdf.seek(0)
+    
+    return final_pdf.read()
+""", "main.py 전체 수정 - PDF 배경/로고 추가")

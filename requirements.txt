@@ -5,3 +5,6 @@ numpy
 skyfield
 jplephem
 playwright
+pypdf
+reportlab
+Pillow
