@@ -9,7 +9,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.8.2"
+    version="1.8.3"
 )
 
 # ==================================================
@@ -223,6 +223,7 @@ from playwright.async_api import async_playwright
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
 from io import BytesIO
 import requests
 
@@ -314,10 +315,15 @@ def add_background_and_logo(original_pdf_bytes, bg_url):
         can = canvas.Canvas(packet, pagesize=A4)
         
         if bg_image:
-            temp_bg = BytesIO()
-            bg_image.save(temp_bg, format='PNG')
-            temp_bg.seek(0)
-            can.drawImage(temp_bg, 0, 0, width=page_width, height=page_height, preserveAspectRatio=False, mask='auto')
+            img_reader = ImageReader(bg_image)
+            can.drawImage(
+                img_reader,
+                0, 0,
+                width=page_width,
+                height=page_height,
+                preserveAspectRatio=False,
+                mask='auto'
+            )
         
         can.setFont("Helvetica", 8)
         can.setFillColorRGB(0.5, 0.5, 0.5)
