@@ -9,7 +9,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.7.13"  # ✅ FINAL: Month by 절(節), -32m ONLY for hour
+    version="1.8.0"  # ✅ Added PDF generation
 )
 
 # ==================================================
@@ -207,7 +207,7 @@ def get_hour_pillar(day_pillar, hh, mm):
     return {"stem": hour_stem, "branch": hour_branch, "ganji": hour_stem + hour_branch}
 
 # =========================
-# API
+# API - Saju Calculation
 # =========================
 @app.get("/api/saju/calc")
 def calc_saju(
@@ -266,3 +266,49 @@ def calc_saju(
             "saju_year": saju_year
         }
     }
+
+
+# =========================
+# API - PDF Generation
+# =========================
+from fastapi import HTTPException
+from fastapi.responses import Response
+from playwright.async_api import async_playwright
+
+@app.get("/api/pdf/generate")
+async def generate_pdf(rid: str = Query(...)):
+    """Generate PDF from web report"""
+    try:
+        url = f"https://saju-baksa.com/report/{rid}?print=1"
+        
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                args=['--no-sandbox', '--disable-setuid-sandbox']
+            )
+            page = await browser.new_page()
+            
+            await page.goto(url, wait_until="networkidle", timeout=60000)
+            
+            pdf_bytes = await page.pdf(
+                format="A4",
+                print_background=True,
+                margin={
+                    "top": "0px",
+                    "bottom": "0px",
+                    "left": "0px",
+                    "right": "0px"
+                }
+            )
+            
+            await browser.close()
+            
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f"attachment; filename=report-{rid}.pdf"
+                }
+            )
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
