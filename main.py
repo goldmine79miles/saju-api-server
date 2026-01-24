@@ -9,7 +9,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.8.5"
+    version="1.8.6"
 )
 
 # ==================================================
@@ -241,20 +241,38 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             await page.goto(url, wait_until="networkidle", timeout=60000)
             await page.wait_for_timeout(3000)
             
+            # 강력한 페이지 분할
             await page.evaluate("""
                 const style = document.createElement('style');
                 style.textContent = `
-                    @page { size: A4; margin: 0; }
+                    @page { 
+                        size: A4; 
+                        margin: 0; 
+                    }
+                    
+                    body {
+                        margin: 0;
+                        padding: 0;
+                    }
+                    
                     .report-cover {
                         page-break-after: always !important;
                         break-after: page !important;
-                        height: 100vh !important;
+                        display: block !important;
+                        position: relative !important;
+                        width: 210mm !important;
+                        height: 297mm !important;
                         min-height: 297mm !important;
+                        max-height: 297mm !important;
+                        overflow: hidden !important;
                     }
+                    
                     .report-container {
                         page-break-before: always !important;
                         break-before: page !important;
+                        display: block !important;
                     }
+                    
                     * {
                         -webkit-print-color-adjust: exact !important;
                         print-color-adjust: exact !important;
@@ -262,10 +280,17 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
                 `;
                 document.head.appendChild(style);
                 
+                // 표지 강제 설정
                 const cover = document.querySelector('.report-cover');
                 if (cover) {
                     cover.style.pageBreakAfter = 'always';
                     cover.style.breakAfter = 'page';
+                    cover.style.display = 'block';
+                    cover.style.width = '210mm';
+                    cover.style.height = '297mm';
+                    cover.style.minHeight = '297mm';
+                    cover.style.maxHeight = '297mm';
+                    cover.style.overflow = 'hidden';
                 }
             """)
             
@@ -273,9 +298,10 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             
             pdf_bytes = await page.pdf(
                 format="A4",
-                print_background=False,
+                print_background=True,  # True로 변경
                 margin={"top": "0", "bottom": "0", "left": "0", "right": "0"},
-                prefer_css_page_size=True
+                prefer_css_page_size=True,
+                scale=1.0
             )
             
             await browser.close()
@@ -310,21 +336,24 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
         logo_response = requests.get(logo_url, timeout=10)
         logo_png = cairosvg.svg2png(bytestring=logo_response.content)
         logo_image = Image.open(BytesIO(logo_png))
-    except:
-        pass
+    except Exception as e:
+        print(f"[LOGO ERROR] {e}")
     
     page_width, page_height = A4
     
     for page_num in range(len(original_pdf.pages)):
         page = original_pdf.pages[page_num]
         
+        # 표지(0페이지)는 그대로
         if page_num == 0:
             output.add_page(page)
             continue
         
+        # 나머지 페이지: 배경 + 로고
         packet = BytesIO()
         can = canvas.Canvas(packet, pagesize=A4)
         
+        # 배경 이미지
         if bg_image:
             img_reader = ImageReader(bg_image)
             can.drawImage(
@@ -338,17 +367,21 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
         
         # 로고 이미지 하단 중앙
         if logo_image:
-            logo_reader = ImageReader(logo_image)
-            logo_width = 80
-            logo_height = 24
-            can.drawImage(
-                logo_reader,
-                (page_width - logo_width) / 2,
-                20,
-                width=logo_width,
-                height=logo_height,
-                mask='auto'
-            )
+            try:
+                logo_reader = ImageReader(logo_image)
+                logo_width = 80
+                logo_height = 24
+                can.drawImage(
+                    logo_reader,
+                    (page_width - logo_width) / 2,
+                    20,
+                    width=logo_width,
+                    height=logo_height,
+                    preserveAspectRatio=True,
+                    mask='auto'
+                )
+            except Exception as e:
+                print(f"[LOGO DRAW ERROR] Page {page_num}: {e}")
         
         can.save()
         
