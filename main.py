@@ -9,7 +9,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.8.2"  # ✅ PDF quality improvements + page breaks
+    version="1.8.1"  # ✅ Fixed PDF token issue
 )
 
 # ==================================================
@@ -289,12 +289,11 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             page = await browser.new_page()
             
             await page.goto(url, wait_until="networkidle", timeout=60000)
+            await page.wait_for_timeout(3000)  # 3초 추가 대기
             
             pdf_bytes = await page.pdf(
                 format="A4",
                 print_background=True,
-                scale=1.0,
-                prefer_css_page_size=False,
                 margin={
                     "top": "0px",
                     "bottom": "0px",
