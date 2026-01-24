@@ -9,7 +9,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.8.0"  # ✅ Added PDF generation
+    version="1.8.1"  # ✅ Fixed PDF token issue
 )
 
 # ==================================================
@@ -276,10 +276,11 @@ from fastapi.responses import Response
 from playwright.async_api import async_playwright
 
 @app.get("/api/pdf/generate")
-async def generate_pdf(rid: str = Query(...)):
-    """Generate PDF from web report"""
+async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
+    """Generate PDF from web report with token"""
     try:
-        url = f"https://saju-baksa.com/report/{rid}?print=1"
+        # 토큰을 포함한 URL
+        url = f"https://saju-baksa.com/report/{rid}?t={token}&print=1"
         
         async with async_playwright() as p:
             browser = await p.chromium.launch(
