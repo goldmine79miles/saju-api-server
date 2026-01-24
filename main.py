@@ -9,7 +9,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.8.3"
+    version="1.8.5"
 )
 
 # ==================================================
@@ -226,12 +226,14 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from io import BytesIO
 import requests
+import cairosvg
 
 @app.get("/api/pdf/generate")
 async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
     try:
         url = f"https://saju-baksa.com/report/{rid}?t={token}&print=1"
         bg_url = "https://saju-baksa.com/report-bg.png"
+        logo_url = "https://saju-baksa.com/logo-text.svg"
         
         async with async_playwright() as p:
             browser = await p.chromium.launch(args=['--no-sandbox', '--disable-setuid-sandbox'])
@@ -278,7 +280,7 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             
             await browser.close()
         
-        pdf_bytes = add_background_and_logo(pdf_bytes, bg_url)
+        pdf_bytes = add_background_and_logo(pdf_bytes, bg_url, logo_url)
         
         return Response(
             content=pdf_bytes,
@@ -290,7 +292,7 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def add_background_and_logo(original_pdf_bytes, bg_url):
+def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
     from PIL import Image
     
     original_pdf = PdfReader(BytesIO(original_pdf_bytes))
@@ -301,6 +303,15 @@ def add_background_and_logo(original_pdf_bytes, bg_url):
         bg_image = Image.open(BytesIO(bg_response.content))
     except:
         bg_image = None
+    
+    # SVG 로고를 PNG로 변환
+    logo_image = None
+    try:
+        logo_response = requests.get(logo_url, timeout=10)
+        logo_png = cairosvg.svg2png(bytestring=logo_response.content)
+        logo_image = Image.open(BytesIO(logo_png))
+    except:
+        pass
     
     page_width, page_height = A4
     
@@ -325,9 +336,20 @@ def add_background_and_logo(original_pdf_bytes, bg_url):
                 mask='auto'
             )
         
-        can.setFont("Helvetica", 8)
-        can.setFillColorRGB(0.5, 0.5, 0.5)
-        can.drawCentredString(page_width / 2, 30, "사주박사")
+        # 로고 이미지 하단 중앙
+        if logo_image:
+            logo_reader = ImageReader(logo_image)
+            logo_width = 80
+            logo_height = 24
+            can.drawImage(
+                logo_reader,
+                (page_width - logo_width) / 2,
+                20,
+                width=logo_width,
+                height=logo_height,
+                mask='auto'
+            )
+        
         can.save()
         
         packet.seek(0)

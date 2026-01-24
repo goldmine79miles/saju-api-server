@@ -8,3 +8,4 @@ playwright
 pypdf
 reportlab
 Pillow
+cairosvg
