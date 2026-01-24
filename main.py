@@ -289,17 +289,90 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             page = await browser.new_page()
             
             await page.goto(url, wait_until="networkidle", timeout=60000)
-            await page.wait_for_timeout(3000)  # 3초 추가 대기
+            await page.wait_for_timeout(3000)
+            
+            # JavaScript로 PDF 스타일 강제 적용
+            await page.evaluate("""
+                // 표지와 본문 강제 분리
+                const cover = document.querySelector('.report-cover');
+                if (cover) {
+                    cover.style.pageBreakAfter = 'always';
+                    cover.style.breakAfter = 'page';
+                }
+                
+                // 본문 컨테이너 여백
+                const container = document.querySelector('.report-container');
+                if (container) {
+                    container.style.paddingTop = '20mm';
+                    container.style.pageBreakBefore = 'always';
+                    container.style.paddingBottom = '30mm';  // 마지막 페이지 여백 확보
+                }
+                
+                // 배경 이미지 강제 적용
+                document.documentElement.style.backgroundImage = 'url(/report-bg.png)';
+                document.documentElement.style.backgroundSize = 'cover';
+                document.documentElement.style.backgroundRepeat = 'no-repeat';
+                document.documentElement.style.backgroundAttachment = 'fixed';
+                document.documentElement.style.minHeight = '100%';
+                
+                // 색상 정확도 강제
+                document.documentElement.style.webkitPrintColorAdjust = 'exact';
+                document.documentElement.style.printColorAdjust = 'exact';
+                
+                document.body.style.background = 'transparent';
+                document.body.style.minHeight = '100vh';
+                
+                // 하단 로고 추가 (모든 페이지)
+                const style = document.createElement('style');
+                style.textContent = `
+                    @media print {
+                        @page {
+                            margin-bottom: 25mm;
+                            background: url(/report-bg.png) no-repeat center center;
+                            background-size: cover;
+                        }
+                        @page :last {
+                            background: url(/report-bg.png) no-repeat center center;
+                            background-size: cover;
+                        }
+                        body::after {
+                            content: '';
+                            position: fixed;
+                            bottom: 5mm;
+                            left: 50%;
+                            transform: translateX(-50%);
+                            width: 80px;
+                            height: 24px;
+                            background: url(/logo-text.svg) no-repeat center;
+                            background-size: contain;
+                            opacity: 0.6;
+                        }
+                    }
+                `;
+                document.head.appendChild(style);
+                
+                // 마지막 요소 이후 빈 공간도 배경 유지
+                const lastSection = document.querySelector('.report-container > section:last-child');
+                if (lastSection) {
+                    const spacer = document.createElement('div');
+                    spacer.style.minHeight = '50mm';
+                    spacer.style.background = 'transparent';
+                    lastSection.after(spacer);
+                }
+            """)
+            
+            await page.wait_for_timeout(1000)
             
             pdf_bytes = await page.pdf(
                 format="A4",
                 print_background=True,
                 margin={
-                    "top": "0px",
-                    "bottom": "0px",
-                    "left": "0px",
-                    "right": "0px"
-                }
+                    "top": "20mm",
+                    "bottom": "25mm",
+                    "left": "15mm",
+                    "right": "15mm"
+                },
+                prefer_css_page_size=False
             )
             
             await browser.close()
