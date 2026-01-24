@@ -298,66 +298,62 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
                 if (cover) {
                     cover.style.pageBreakAfter = 'always';
                     cover.style.breakAfter = 'page';
+                    // 표지는 자체 배경 사용
+                    cover.style.background = 'transparent';
                 }
                 
                 // 본문 컨테이너 여백
                 const container = document.querySelector('.report-container');
                 if (container) {
-                    container.style.paddingTop = '20mm';
+                    container.style.paddingTop = '25mm';  // 상단 여백 증가
+                    container.style.paddingBottom = '30mm';
                     container.style.pageBreakBefore = 'always';
-                    container.style.paddingBottom = '30mm';  // 마지막 페이지 여백 확보
                 }
                 
-                // 배경 이미지 강제 적용
-                document.documentElement.style.backgroundImage = 'url(/report-bg.png)';
-                document.documentElement.style.backgroundSize = 'cover';
-                document.documentElement.style.backgroundRepeat = 'no-repeat';
-                document.documentElement.style.backgroundAttachment = 'fixed';
-                document.documentElement.style.minHeight = '100%';
+                // 본문에만 배경 적용 (표지 제외)
+                if (container) {
+                    container.style.backgroundImage = 'url(/report-bg.png)';
+                    container.style.backgroundSize = 'cover';
+                    container.style.backgroundRepeat = 'no-repeat';
+                    container.style.backgroundAttachment = 'fixed';
+                }
                 
                 // 색상 정확도 강제
                 document.documentElement.style.webkitPrintColorAdjust = 'exact';
                 document.documentElement.style.printColorAdjust = 'exact';
                 
-                document.body.style.background = 'transparent';
-                document.body.style.minHeight = '100vh';
+                // 하단 로고를 HTML 요소로 직접 생성 (CSS ::after 대신)
+                const pages = document.querySelectorAll('.report-container > section, .report-container > div');
+                pages.forEach((section, index) => {
+                    const logo = document.createElement('div');
+                    logo.style.cssText = `
+                        position: relative;
+                        width: 100%;
+                        height: 30px;
+                        margin-top: 20px;
+                        text-align: center;
+                        page-break-inside: avoid;
+                    `;
+                    logo.innerHTML = `
+                        <img src="/logo-text.svg" style="width: 80px; height: 24px; opacity: 0.6;" />
+                    `;
+                    section.appendChild(logo);
+                });
                 
-                // 하단 로고 추가 (모든 페이지)
-                const style = document.createElement('style');
-                style.textContent = `
-                    @media print {
-                        @page {
-                            margin-bottom: 25mm;
-                            background: url(/report-bg.png) no-repeat center center;
-                            background-size: cover;
-                        }
-                        @page :last {
-                            background: url(/report-bg.png) no-repeat center center;
-                            background-size: cover;
-                        }
-                        body::after {
-                            content: '';
-                            position: fixed;
-                            bottom: 5mm;
-                            left: 50%;
-                            transform: translateX(-50%);
-                            width: 80px;
-                            height: 24px;
-                            background: url(/logo-text.svg) no-repeat center;
-                            background-size: contain;
-                            opacity: 0.6;
-                        }
-                    }
-                `;
-                document.head.appendChild(style);
-                
-                // 마지막 요소 이후 빈 공간도 배경 유지
-                const lastSection = document.querySelector('.report-container > section:last-child');
+                // 마지막 페이지 로고 추가
+                const lastSection = document.querySelector('.report-container > section:last-child, .report-container > div:last-child');
                 if (lastSection) {
-                    const spacer = document.createElement('div');
-                    spacer.style.minHeight = '50mm';
-                    spacer.style.background = 'transparent';
-                    lastSection.after(spacer);
+                    const finalLogo = document.createElement('div');
+                    finalLogo.style.cssText = `
+                        width: 100%;
+                        text-align: center;
+                        padding: 40px 0;
+                        page-break-inside: avoid;
+                    `;
+                    finalLogo.innerHTML = `
+                        <img src="/logo-text.svg" style="width: 80px; height: 24px; opacity: 0.6;" />
+                    `;
+                    lastSection.appendChild(finalLogo);
                 }
             """)
             
