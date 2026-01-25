@@ -9,7 +9,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.8.8"
+    version="1.8.9"
 )
 
 # ==================================================
@@ -241,13 +241,12 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             await page.goto(url, wait_until="networkidle", timeout=60000)
             await page.wait_for_timeout(3000)
             
-            # 표지와 본문 강제 분리
+            # 표지와 본문 강제 분리 (배경은 pypdf에서만 추가)
             await page.evaluate("""
                 const cover = document.querySelector('.report-cover');
                 if (cover) {
                     cover.style.pageBreakAfter = 'always';
                     cover.style.breakAfter = 'page';
-                    cover.style.background = 'transparent';
                 }
                 
                 const container = document.querySelector('.report-container');
@@ -257,33 +256,28 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
                     container.style.pageBreakBefore = 'always';
                 }
                 
-                if (container) {
-                    container.style.backgroundImage = 'url(/report-bg.png)';
-                    container.style.backgroundSize = 'cover';
-                    container.style.backgroundRepeat = 'no-repeat';
-                    container.style.backgroundAttachment = 'fixed';
-                }
-                
                 document.documentElement.style.webkitPrintColorAdjust = 'exact';
                 document.documentElement.style.printColorAdjust = 'exact';
             """)
             
             await page.wait_for_timeout(1000)
             
+            # margin 0으로 (표지 꽉 차게)
             pdf_bytes = await page.pdf(
                 format="A4",
                 print_background=True,
                 margin={
-                    "top": "20mm",
-                    "bottom": "25mm",
-                    "left": "15mm",
-                    "right": "15mm"
+                    "top": "0mm",
+                    "bottom": "0mm",
+                    "left": "0mm",
+                    "right": "0mm"
                 },
                 prefer_css_page_size=False
             )
             
             await browser.close()
         
+        # pypdf에서 배경+로고 추가
         pdf_bytes = add_background_and_logo(pdf_bytes, bg_url, logo_url)
         
         return Response(
