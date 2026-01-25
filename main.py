@@ -265,8 +265,7 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
                     "left": "0mm",
                     "right": "0mm"
                 },
-                prefer_css_page_size=False,
-                print_page_ranges="1-999"  # 빈 페이지 방지
+                prefer_css_page_size=False
             )
             
             await browser.close()
@@ -330,8 +329,31 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
     
     print(f"[DEBUG] Total pages: {len(original_pdf.pages)}", flush=True)
     
+    # ★ 2페이지(index 1)만 빈 페이지 체크 ★
+    # 브라우저 Print에서는 안 나오는데 Playwright에서만 생기는 빈 페이지 제거
+    skip_page_1 = False
+    if len(original_pdf.pages) > 1:
+        try:
+            page_1 = original_pdf.pages[1]
+            text = page_1.extract_text().strip()
+            print(f"[DEBUG] Page 1 (index 1) text length: {len(text)}", flush=True)
+            print(f"[DEBUG] Page 1 text preview: {text[:100] if text else '(empty)'}", flush=True)
+            
+            # 텍스트가 30자 이하면 빈 페이지로 간주 (안전 마진)
+            # 실제 목차 페이지는 보통 최소 200자 이상
+            if len(text) < 30:
+                print(f"[DEBUG] Page 1 is blank (text < 30 chars), will SKIP", flush=True)
+                skip_page_1 = True
+        except Exception as e:
+            print(f"[DEBUG] Could not check page 1: {e}", flush=True)
+    
     for page_num in range(len(original_pdf.pages)):
         page = original_pdf.pages[page_num]
+        
+        # 2페이지(index 1)가 빈 페이지면 건너뜀
+        if page_num == 1 and skip_page_1:
+            print(f"[DEBUG] Skipping page 1 (blank page)", flush=True)
+            continue
         
         print(f"[DEBUG] Processing page {page_num}", flush=True)
         
