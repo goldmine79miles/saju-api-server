@@ -226,13 +226,14 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from io import BytesIO
 import requests
+import cairosvg
 
 @app.get("/api/pdf/generate")
 async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
     try:
         url = f"https://saju-baksa.com/report/{rid}?t={token}&print=1"
         bg_url = "https://saju-baksa.com/report-bg.png"
-        logo_url = "https://saju-baksa.com/logo-mail.png"
+        logo_url = "https://saju-baksa.com/logo-text.svg"
         
         async with async_playwright() as p:
             browser = await p.chromium.launch(args=['--no-sandbox', '--disable-setuid-sandbox'])
@@ -240,79 +241,39 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             await page.goto(url, wait_until="networkidle", timeout=60000)
             await page.wait_for_timeout(3000)
             
-            # PDF 생성 전 표지만 여백 제거 + body 배경 투명하게
-            print("[PYTHON] Starting JavaScript evaluation...", flush=True)
-            
-            result = await page.evaluate("""
-                (() => {
-                    console.log('[JS] ========== START PDF MODIFICATIONS ==========');
-                    
-                    const cover = document.querySelector('.report-cover');
-                    if (cover) {
-                        cover.style.padding = '0';
-                        cover.style.margin = '0';
-                        console.log('[JS] ✅ Cover padding removed');
-                    } else {
-                        console.log('[JS] ❌ Cover not found');
-                    }
-                    
-                    // body 배경을 투명하게 (pypdf 배경이 보이도록)
-                    document.body.style.background = 'transparent';
-                    document.documentElement.style.background = 'transparent';
-                    console.log('[JS] ✅ Body background transparent');
-                    
-                    // ★ 목차 다음에 강제 페이지 넘김 ★
-                    const allSections = document.querySelectorAll('section');
-                    console.log('[JS] Total sections found:', allSections.length);
-                    
-                    let tocFound = false;
-                    for (let i = 0; i < allSections.length; i++) {
-                        const section = allSections[i];
-                        const text = (section.textContent || '').trim();
-                        
-                        // 목차 박스 찾기
-                        if ((text.includes('【목차】') || text.includes('[목차]') || text.includes('목차')) && text.includes('1.')) {
-                            section.style.pageBreakAfter = 'always';
-                            section.style.breakAfter = 'page';
-                            console.log('[JS] ✅ TOC page-break applied at section', i);
-                            tocFound = true;
-                            break;
-                        }
-                    }
-                    if (!tocFound) {
-                        console.log('[JS] ❌ TOC section NOT found');
-                    }
-                    
-                    // ★ 본문 섹션 margin 추가 ★
-                    let bodyCount = 0;
-                    for (let i = 0; i < allSections.length; i++) {
-                        const section = allSections[i];
-                        const bgColor = window.getComputedStyle(section).backgroundColor;
-                        
-                        // 흰색 배경 = 본문
-                        if (bgColor.includes('255, 255, 255')) {
-                            section.style.marginTop = '60px';
-                            section.style.marginBottom = '60px';
-                            bodyCount++;
-                            console.log('[JS] ✅ Body margin applied at section', i);
-                        }
-                    }
-                    console.log('[JS] Total body sections modified:', bodyCount);
-                    
-                    console.log('[JS] ========== END PDF MODIFICATIONS ==========');
-                    
-                    // Python으로 결과 리턴
-                    return {
-                        sections: allSections.length,
-                        tocFound: tocFound,
-                        bodyCount: bodyCount
-                    };
-                })()
+            # PDF 생성 시에만 여백 강제 제거 (웹은 그대로)
+            await page.evaluate("""
+                // 표지 여백 제거
+                const cover = document.querySelector('.report-cover');
+                if (cover) {
+                    cover.style.padding = '0';
+                    cover.style.margin = '0';
+                    cover.style.pageBreakAfter = 'always';
+                    cover.style.breakAfter = 'page';
+                }
+                
+                // 본문 컨테이너 여백 제거
+                const container = document.querySelectorAll('[style*="max-width"]')[0];
+                if (container) {
+                    container.style.padding = '0';
+                    container.style.margin = '0';
+                    container.style.maxWidth = '100%';
+                    container.style.pageBreakBefore = 'always';
+                }
+                
+                // 모든 section 여백 제거
+                const sections = document.querySelectorAll('section');
+                sections.forEach(s => {
+                    s.style.margin = '0';
+                    s.style.padding = '15mm';  // 내부 컨텐츠만 padding
+                });
+                
+                // 프린트 색상 유지
+                document.documentElement.style.webkitPrintColorAdjust = 'exact';
+                document.documentElement.style.printColorAdjust = 'exact';
             """)
             
-            print(f"[PYTHON] JavaScript executed! Result: {result}", flush=True)
-            
-            await page.wait_for_timeout(2000)  # 2초로 증가
+            await page.wait_for_timeout(1000)
             
             # margin 0으로 (표지 꽉 차게)
             pdf_bytes = await page.pdf(
@@ -345,106 +306,53 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
 def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
     from PIL import Image
     
-    print("[DEBUG] Starting add_background_and_logo", flush=True)
-    
     original_pdf = PdfReader(BytesIO(original_pdf_bytes))
     output = PdfWriter()
     
-    # A4 크기 먼저 정의
-    page_width, page_height = A4
-    print(f"[DEBUG] A4 size: {page_width}x{page_height}", flush=True)
-    
-    # 배경 이미지 다운로드 & 리사이즈
-    bg_image = None
     try:
-        print(f"[DEBUG] Downloading background from {bg_url}", flush=True)
         bg_response = requests.get(bg_url, timeout=10)
-        print(f"[DEBUG] BG response status: {bg_response.status_code}, size: {len(bg_response.content)}", flush=True)
-        
         bg_image = Image.open(BytesIO(bg_response.content))
-        print(f"[DEBUG] BG original size: {bg_image.size}, mode: {bg_image.mode}", flush=True)
-        
-        # A4 크기로 강제 리사이즈 (595x842 포인트)
-        bg_image = bg_image.resize((int(page_width), int(page_height)), Image.Resampling.LANCZOS)
-        print(f"[DEBUG] BG resized to: {bg_image.size}", flush=True)
-    except Exception as e:
-        print(f"[BG ERROR] {e}", flush=True)
-        import traceback
-        print(traceback.format_exc(), flush=True)
+    except:
+        bg_image = None
     
-    # PNG 로고 직접 로드
+    # SVG 로고를 PNG로 변환
     logo_image = None
     try:
-        print(f"[DEBUG] Downloading logo from {logo_url}", flush=True)
         logo_response = requests.get(logo_url, timeout=10)
-        print(f"[DEBUG] LOGO response status: {logo_response.status_code}, size: {len(logo_response.content)}", flush=True)
-        
-        logo_image = Image.open(BytesIO(logo_response.content))
-        print(f"[DEBUG] LOGO size: {logo_image.size}, mode: {logo_image.mode}", flush=True)
+        logo_png = cairosvg.svg2png(bytestring=logo_response.content)
+        logo_image = Image.open(BytesIO(logo_png))
     except Exception as e:
-        print(f"[LOGO ERROR] {e}", flush=True)
-        import traceback
-        print(traceback.format_exc(), flush=True)
+        print(f"[LOGO ERROR] {e}")
     
-    print(f"[DEBUG] Total pages: {len(original_pdf.pages)}", flush=True)
-    
-    # ★ 2페이지(index 1)만 빈 페이지 체크 ★
-    # 브라우저 Print에서는 안 나오는데 Playwright에서만 생기는 빈 페이지 제거
-    skip_page_1 = False
-    if len(original_pdf.pages) > 1:
-        try:
-            page_1 = original_pdf.pages[1]
-            text = page_1.extract_text().strip()
-            print(f"[DEBUG] Page 1 (index 1) text length: {len(text)}", flush=True)
-            print(f"[DEBUG] Page 1 text preview: {text[:100] if text else '(empty)'}", flush=True)
-            
-            # 텍스트가 30자 이하면 빈 페이지로 간주 (안전 마진)
-            # 실제 목차 페이지는 보통 최소 200자 이상
-            if len(text) < 30:
-                print(f"[DEBUG] Page 1 is blank (text < 30 chars), will SKIP", flush=True)
-                skip_page_1 = True
-        except Exception as e:
-            print(f"[DEBUG] Could not check page 1: {e}", flush=True)
+    page_width, page_height = A4
     
     for page_num in range(len(original_pdf.pages)):
         page = original_pdf.pages[page_num]
         
-        # 2페이지(index 1)가 빈 페이지면 건너뜀
-        if page_num == 1 and skip_page_1:
-            print(f"[DEBUG] Skipping page 1 (blank page)", flush=True)
-            continue
-        
-        print(f"[DEBUG] Processing page {page_num}", flush=True)
-        
         # 표지(0페이지)는 그대로
         if page_num == 0:
             output.add_page(page)
-            print(f"[DEBUG] Page 0 (cover) added as-is", flush=True)
             continue
         
         # 나머지 페이지: 배경 + 로고
-        try:
-            packet = BytesIO()
-            can = canvas.Canvas(packet, pagesize=A4)
-            
-            # 배경 이미지 (먼저 그림)
-            if bg_image:
-                img_reader = ImageReader(bg_image)
-                # 비율 유지하면서 A4에 맞춤 (꽃 무늬가 잘리지 않도록)
-                can.drawImage(
-                    img_reader,
-                    0, 0,
-                    width=page_width,
-                    height=page_height,
-                    preserveAspectRatio=True,
-                    anchor='c'  # 중앙 정렬
-                )
-                print(f"[DEBUG] Page {page_num}: Background drawn (preserveAspectRatio=True)", flush=True)
-            else:
-                print(f"[DEBUG] Page {page_num}: No background image", flush=True)
-            
-            # 로고 이미지 하단 중앙
-            if logo_image:
+        packet = BytesIO()
+        can = canvas.Canvas(packet, pagesize=A4)
+        
+        # 배경 이미지
+        if bg_image:
+            img_reader = ImageReader(bg_image)
+            can.drawImage(
+                img_reader,
+                0, 0,
+                width=page_width,
+                height=page_height,
+                preserveAspectRatio=False,
+                mask='auto'
+            )
+        
+        # 로고 이미지 하단 중앙
+        if logo_image:
+            try:
                 logo_reader = ImageReader(logo_image)
                 logo_width = 80
                 logo_height = 24
@@ -454,33 +362,21 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
                     20,
                     width=logo_width,
                     height=logo_height,
-                    preserveAspectRatio=True
+                    preserveAspectRatio=True,
+                    mask='auto'
                 )
-                print(f"[DEBUG] Page {page_num}: Logo drawn", flush=True)
-            else:
-                print(f"[DEBUG] Page {page_num}: No logo image", flush=True)
-            
-            can.save()
-            print(f"[DEBUG] Page {page_num}: Canvas saved", flush=True)
-            
-            # ★★★ 핵심 수정: merge 순서 반대로 ★★★
-            # 배경(overlay)을 먼저, 원본(page)을 위에 덮어씌움
-            packet.seek(0)
-            overlay_pdf = PdfReader(packet)
-            overlay_page = overlay_pdf.pages[0]
-            
-            # 원본 페이지를 배경 위에 올림
-            overlay_page.merge_page(page)
-            output.add_page(overlay_page)
-            print(f"[DEBUG] Page {page_num}: Merged (overlay + page) and added", flush=True)
-            
-        except Exception as e:
-            print(f"[PAGE {page_num} ERROR] {e}", flush=True)
-            import traceback
-            print(traceback.format_exc(), flush=True)
+            except Exception as e:
+                print(f"[LOGO DRAW ERROR] Page {page_num}: {e}")
+        
+        can.save()
+        
+        packet.seek(0)
+        bg_pdf = PdfReader(packet)
+        bg_page = bg_pdf.pages[0]
+        bg_page.merge_page(page)
+        output.add_page(bg_page)
     
     final_pdf = BytesIO()
     output.write(final_pdf)
     final_pdf.seek(0)
-    print("[DEBUG] PDF generation complete", flush=True)
     return final_pdf.read()
