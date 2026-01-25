@@ -233,7 +233,7 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
     try:
         url = f"https://saju-baksa.com/report/{rid}?t={token}&print=1"
         bg_url = "https://saju-baksa.com/report-bg.png"
-        logo_url = "https://saju-baksa.com/logo-text.svg"
+        logo_url = "https://saju-baksa.com/logo-mail.png"  # SVG → PNG
         
         async with async_playwright() as p:
             browser = await p.chromium.launch(args=['--no-sandbox', '--disable-setuid-sandbox'])
@@ -289,15 +289,17 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
     try:
         bg_response = requests.get(bg_url, timeout=10)
         bg_image = Image.open(BytesIO(bg_response.content))
-    except:
+        # A4 크기로 강제 리사이즈 (595x842 포인트)
+        bg_image = bg_image.resize((int(page_width), int(page_height)), Image.Resampling.LANCZOS)
+    except Exception as e:
+        print(f"[BG ERROR] {e}")
         bg_image = None
     
-    # SVG 로고를 PNG로 변환
+    # PNG 로고 직접 로드
     logo_image = None
     try:
         logo_response = requests.get(logo_url, timeout=10)
-        logo_png = cairosvg.svg2png(bytestring=logo_response.content)
-        logo_image = Image.open(BytesIO(logo_png))
+        logo_image = Image.open(BytesIO(logo_response.content))
     except Exception as e:
         print(f"[LOGO ERROR] {e}")
     
@@ -323,8 +325,7 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
                 0, 0,
                 width=page_width,
                 height=page_height,
-                preserveAspectRatio=False,
-                mask='auto'
+                preserveAspectRatio=False  # 비율 무시하고 꽉 채움
             )
         
         # 로고 이미지 하단 중앙
@@ -339,8 +340,7 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
                     20,
                     width=logo_width,
                     height=logo_height,
-                    preserveAspectRatio=True,
-                    mask='auto'
+                    preserveAspectRatio=True
                 )
             except Exception as e:
                 print(f"[LOGO DRAW ERROR] Page {page_num}: {e}")
