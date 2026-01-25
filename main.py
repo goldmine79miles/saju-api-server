@@ -351,8 +351,8 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
         bg_pdf = PdfReader(bg_packet)
         bg_page = bg_pdf.pages[0]
         
-        # 2. 페이지 위에 배경 합치기
-        page.merge_page(bg_page)
+        # 2. 배경 밑에 페이지 올리기 (본문이 위로)
+        bg_page.merge_page(page)
         
         # 3. 로고 레이어 (맨 위)
         if logo_image:
@@ -383,12 +383,12 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
                 logo_page = logo_pdf.pages[0]
                 
                 # 로고를 페이지 맨 위에 합치기
-                page.merge_page(logo_page)
+                bg_page.merge_page(logo_page)
                 print(f"[LOGO] Page {page_num}: Successfully drawn on top")
             except Exception as e:
                 print(f"[LOGO DRAW ERROR] Page {page_num}: {e}")
         
-        output.add_page(page)
+        output.add_page(bg_page)
     
     final_pdf = BytesIO()
     output.write(final_pdf)
