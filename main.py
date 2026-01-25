@@ -307,12 +307,17 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
     except:
         bg_image = None
     
-    # SVG 로고를 PNG로 변환
+    # SVG 로고를 PNG로 변환 (크기 지정)
     logo_image = None
     try:
         logo_response = requests.get(logo_url, timeout=10)
-        logo_png = cairosvg.svg2png(bytestring=logo_response.content)
+        logo_png = cairosvg.svg2png(
+            bytestring=logo_response.content,
+            output_width=240,   # 80pt * 3 (고해상도)
+            output_height=72    # 24pt * 3
+        )
         logo_image = Image.open(BytesIO(logo_png))
+        print(f"[LOGO] Successfully loaded: {logo_image.size}")
     except Exception as e:
         print(f"[LOGO ERROR] {e}")
     
@@ -326,14 +331,14 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
             output.add_page(page)
             continue
         
-        # 나머지 페이지: 배경 + 로고
-        packet = BytesIO()
-        can = canvas.Canvas(packet, pagesize=A4)
+        # 나머지 페이지: 1. 배경 먼저, 2. 페이지, 3. 로고 맨 위
         
-        # 배경 이미지
+        # 1. 배경 레이어
+        bg_packet = BytesIO()
+        bg_canvas = canvas.Canvas(bg_packet, pagesize=A4)
         if bg_image:
             img_reader = ImageReader(bg_image)
-            can.drawImage(
+            bg_canvas.drawImage(
                 img_reader,
                 0, 0,
                 width=page_width,
@@ -341,17 +346,28 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
                 preserveAspectRatio=False,
                 mask='auto'
             )
+        bg_canvas.save()
+        bg_packet.seek(0)
+        bg_pdf = PdfReader(bg_packet)
+        bg_page = bg_pdf.pages[0]
         
-        # 로고 이미지 하단 중앙
+        # 2. 페이지 위에 배경 합치기
+        page.merge_page(bg_page)
+        
+        # 3. 로고 레이어 (맨 위)
         if logo_image:
             try:
+                logo_packet = BytesIO()
+                logo_canvas = canvas.Canvas(logo_packet, pagesize=A4)
+                
                 logo_reader = ImageReader(logo_image)
                 logo_width = 80
                 logo_height = 24
                 logo_x = (page_width - logo_width) / 2
-                logo_y = 40  # 20 → 40으로 올림
+                logo_y = 40
+                
                 print(f"[LOGO] Drawing at x={logo_x}, y={logo_y}, size={logo_width}x{logo_height}")
-                can.drawImage(
+                logo_canvas.drawImage(
                     logo_reader,
                     logo_x,
                     logo_y,
@@ -360,16 +376,18 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
                     preserveAspectRatio=True,
                     mask='auto'
                 )
-                print(f"[LOGO] Page {page_num}: Successfully drawn")
+                logo_canvas.save()
+                
+                logo_packet.seek(0)
+                logo_pdf = PdfReader(logo_packet)
+                logo_page = logo_pdf.pages[0]
+                
+                # 로고를 페이지 맨 위에 합치기
+                page.merge_page(logo_page)
+                print(f"[LOGO] Page {page_num}: Successfully drawn on top")
             except Exception as e:
                 print(f"[LOGO DRAW ERROR] Page {page_num}: {e}")
         
-        can.save()
-        
-        packet.seek(0)
-        bg_pdf = PdfReader(packet)
-        bg_page = bg_pdf.pages[0]
-        page.merge_page(bg_page)  # 순서 변경: 페이지 위에 배경
         output.add_page(page)
     
     final_pdf = BytesIO()
