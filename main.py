@@ -241,7 +241,9 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             await page.wait_for_timeout(3000)
             
             # PDF 생성 전 표지만 여백 제거 + body 배경 투명하게
-            await page.evaluate("""
+            print("[PYTHON] Starting JavaScript evaluation...", flush=True)
+            
+            result = await page.evaluate("""
                 console.log('[JS] ========== START PDF MODIFICATIONS ==========');
                 
                 const cover = document.querySelector('.report-cover');
@@ -297,7 +299,16 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
                 console.log('[JS] Total body sections modified:', bodyCount);
                 
                 console.log('[JS] ========== END PDF MODIFICATIONS ==========');
+                
+                // Python으로 결과 리턴
+                return {
+                    sections: allSections.length,
+                    tocFound: tocFound,
+                    bodyCount: bodyCount
+                };
             """)
+            
+            print(f"[PYTHON] JavaScript executed! Result: {result}", flush=True)
             
             await page.wait_for_timeout(2000)  # 2초로 증가
             
