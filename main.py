@@ -9,7 +9,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.8.6"
+    version="1.8.7"
 )
 
 # ==================================================
@@ -241,67 +241,32 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             await page.goto(url, wait_until="networkidle", timeout=60000)
             await page.wait_for_timeout(3000)
             
-            # 강력한 페이지 분할
+            # 표지 강제 A4 크기
             await page.evaluate("""
-                const style = document.createElement('style');
-                style.textContent = `
-                    @page { 
-                        size: A4; 
-                        margin: 0; 
-                    }
-                    
-                    body {
-                        margin: 0;
-                        padding: 0;
-                    }
-                    
-                    .report-cover {
-                        page-break-after: always !important;
-                        break-after: page !important;
-                        display: block !important;
-                        position: relative !important;
-                        width: 210mm !important;
-                        height: 297mm !important;
-                        min-height: 297mm !important;
-                        max-height: 297mm !important;
-                        overflow: hidden !important;
-                    }
-                    
-                    .report-container {
-                        page-break-before: always !important;
-                        break-before: page !important;
-                        display: block !important;
-                    }
-                    
-                    * {
-                        -webkit-print-color-adjust: exact !important;
-                        print-color-adjust: exact !important;
-                    }
-                `;
-                document.head.appendChild(style);
-                
-                // 표지 강제 설정
                 const cover = document.querySelector('.report-cover');
                 if (cover) {
-                    cover.style.pageBreakAfter = 'always';
-                    cover.style.breakAfter = 'page';
-                    cover.style.display = 'block';
                     cover.style.width = '210mm';
                     cover.style.height = '297mm';
                     cover.style.minHeight = '297mm';
                     cover.style.maxHeight = '297mm';
+                    cover.style.margin = '0';
+                    cover.style.padding = '0';
+                    cover.style.boxSizing = 'border-box';
+                    cover.style.pageBreakAfter = 'always';
                     cover.style.overflow = 'hidden';
                 }
             """)
             
-            await page.wait_for_timeout(1000)
+            await page.wait_for_timeout(2000)
             
             pdf_bytes = await page.pdf(
                 format="A4",
-                print_background=True,  # True로 변경
+                print_background=True,
                 margin={"top": "0", "bottom": "0", "left": "0", "right": "0"},
-                prefer_css_page_size=True,
-                scale=1.0
+                prefer_css_page_size=False,
+                scale=1.0,
+                width="210mm",
+                height="297mm"
             )
             
             await browser.close()
