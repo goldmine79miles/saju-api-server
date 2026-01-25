@@ -241,28 +241,13 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             await page.goto(url, wait_until="networkidle", timeout=60000)
             await page.wait_for_timeout(3000)
             
-            # PDF 생성 시에만 여백 강제 제거 (웹은 그대로)
+            # PDF 생성 전 표지만 여백 제거
             await page.evaluate("""
-                // 표지 여백 제거
                 const cover = document.querySelector('.report-cover');
                 if (cover) {
                     cover.style.padding = '0';
                     cover.style.margin = '0';
-                    cover.style.pageBreakAfter = 'always';
-                    cover.style.breakAfter = 'page';
                 }
-                
-                // 본문 컨테이너 여백 최소화
-                const container = document.querySelectorAll('[style*="max-width"]')[0];
-                if (container) {
-                    container.style.padding = '15mm 15mm';
-                    container.style.margin = '0';
-                    container.style.pageBreakBefore = 'always';
-                }
-                
-                // 프린트 색상 유지
-                document.documentElement.style.webkitPrintColorAdjust = 'exact';
-                document.documentElement.style.printColorAdjust = 'exact';
             """)
             
             await page.wait_for_timeout(1000)
