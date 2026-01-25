@@ -286,6 +286,9 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
     original_pdf = PdfReader(BytesIO(original_pdf_bytes))
     output = PdfWriter()
     
+    # A4 크기 먼저 정의
+    page_width, page_height = A4
+    
     try:
         bg_response = requests.get(bg_url, timeout=10)
         bg_image = Image.open(BytesIO(bg_response.content))
@@ -302,8 +305,6 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
         logo_image = Image.open(BytesIO(logo_response.content))
     except Exception as e:
         print(f"[LOGO ERROR] {e}")
-    
-    page_width, page_height = A4
     
     for page_num in range(len(original_pdf.pages)):
         page = original_pdf.pages[page_num]
