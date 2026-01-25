@@ -348,15 +348,19 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
                 logo_reader = ImageReader(logo_image)
                 logo_width = 80
                 logo_height = 24
+                logo_x = (page_width - logo_width) / 2
+                logo_y = 40  # 20 → 40으로 올림
+                print(f"[LOGO] Drawing at x={logo_x}, y={logo_y}, size={logo_width}x{logo_height}")
                 can.drawImage(
                     logo_reader,
-                    (page_width - logo_width) / 2,
-                    20,
+                    logo_x,
+                    logo_y,
                     width=logo_width,
                     height=logo_height,
                     preserveAspectRatio=True,
                     mask='auto'
                 )
+                print(f"[LOGO] Page {page_num}: Successfully drawn")
             except Exception as e:
                 print(f"[LOGO DRAW ERROR] Page {page_num}: {e}")
         
