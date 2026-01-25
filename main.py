@@ -226,14 +226,13 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from io import BytesIO
 import requests
-import cairosvg
 
 @app.get("/api/pdf/generate")
 async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
     try:
         url = f"https://saju-baksa.com/report/{rid}?t={token}&print=1"
         bg_url = "https://saju-baksa.com/report-bg.png"
-        logo_url = "https://saju-baksa.com/logo-mail.png"  # SVG → PNG
+        logo_url = "https://saju-baksa.com/logo-mail.png"
         
         async with async_playwright() as p:
             browser = await p.chromium.launch(args=['--no-sandbox', '--disable-setuid-sandbox'])
@@ -241,13 +240,17 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             await page.goto(url, wait_until="networkidle", timeout=60000)
             await page.wait_for_timeout(3000)
             
-            # PDF 생성 전 표지만 여백 제거
+            # PDF 생성 전 표지만 여백 제거 + body 배경 투명하게
             await page.evaluate("""
                 const cover = document.querySelector('.report-cover');
                 if (cover) {
                     cover.style.padding = '0';
                     cover.style.margin = '0';
                 }
+                
+                // body 배경을 투명하게 (pypdf 배경이 보이도록)
+                document.body.style.background = 'transparent';
+                document.documentElement.style.background = 'transparent';
             """)
             
             await page.wait_for_timeout(1000)
@@ -283,55 +286,81 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
 def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
     from PIL import Image
     
+    print("[DEBUG] Starting add_background_and_logo", flush=True)
+    
     original_pdf = PdfReader(BytesIO(original_pdf_bytes))
     output = PdfWriter()
     
     # A4 크기 먼저 정의
     page_width, page_height = A4
+    print(f"[DEBUG] A4 size: {page_width}x{page_height}", flush=True)
     
+    # 배경 이미지 다운로드 & 리사이즈
+    bg_image = None
     try:
+        print(f"[DEBUG] Downloading background from {bg_url}", flush=True)
         bg_response = requests.get(bg_url, timeout=10)
+        print(f"[DEBUG] BG response status: {bg_response.status_code}, size: {len(bg_response.content)}", flush=True)
+        
         bg_image = Image.open(BytesIO(bg_response.content))
+        print(f"[DEBUG] BG original size: {bg_image.size}, mode: {bg_image.mode}", flush=True)
+        
         # A4 크기로 강제 리사이즈 (595x842 포인트)
         bg_image = bg_image.resize((int(page_width), int(page_height)), Image.Resampling.LANCZOS)
+        print(f"[DEBUG] BG resized to: {bg_image.size}", flush=True)
     except Exception as e:
-        print(f"[BG ERROR] {e}")
-        bg_image = None
+        print(f"[BG ERROR] {e}", flush=True)
+        import traceback
+        print(traceback.format_exc(), flush=True)
     
     # PNG 로고 직접 로드
     logo_image = None
     try:
+        print(f"[DEBUG] Downloading logo from {logo_url}", flush=True)
         logo_response = requests.get(logo_url, timeout=10)
+        print(f"[DEBUG] LOGO response status: {logo_response.status_code}, size: {len(logo_response.content)}", flush=True)
+        
         logo_image = Image.open(BytesIO(logo_response.content))
+        print(f"[DEBUG] LOGO size: {logo_image.size}, mode: {logo_image.mode}", flush=True)
     except Exception as e:
-        print(f"[LOGO ERROR] {e}")
+        print(f"[LOGO ERROR] {e}", flush=True)
+        import traceback
+        print(traceback.format_exc(), flush=True)
+    
+    print(f"[DEBUG] Total pages: {len(original_pdf.pages)}", flush=True)
     
     for page_num in range(len(original_pdf.pages)):
         page = original_pdf.pages[page_num]
         
+        print(f"[DEBUG] Processing page {page_num}", flush=True)
+        
         # 표지(0페이지)는 그대로
         if page_num == 0:
             output.add_page(page)
+            print(f"[DEBUG] Page 0 (cover) added as-is", flush=True)
             continue
         
         # 나머지 페이지: 배경 + 로고
-        packet = BytesIO()
-        can = canvas.Canvas(packet, pagesize=A4)
-        
-        # 배경 이미지
-        if bg_image:
-            img_reader = ImageReader(bg_image)
-            can.drawImage(
-                img_reader,
-                0, 0,
-                width=page_width,
-                height=page_height,
-                preserveAspectRatio=False  # 비율 무시하고 꽉 채움
-            )
-        
-        # 로고 이미지 하단 중앙
-        if logo_image:
-            try:
+        try:
+            packet = BytesIO()
+            can = canvas.Canvas(packet, pagesize=A4)
+            
+            # 배경 이미지 (먼저 그림)
+            if bg_image:
+                img_reader = ImageReader(bg_image)
+                can.drawImage(
+                    img_reader,
+                    0, 0,
+                    width=page_width,
+                    height=page_height,
+                    preserveAspectRatio=False
+                )
+                print(f"[DEBUG] Page {page_num}: Background drawn", flush=True)
+            else:
+                print(f"[DEBUG] Page {page_num}: No background image", flush=True)
+            
+            # 로고 이미지 하단 중앙
+            if logo_image:
                 logo_reader = ImageReader(logo_image)
                 logo_width = 80
                 logo_height = 24
@@ -343,18 +372,31 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
                     height=logo_height,
                     preserveAspectRatio=True
                 )
-            except Exception as e:
-                print(f"[LOGO DRAW ERROR] Page {page_num}: {e}")
-        
-        can.save()
-        
-        packet.seek(0)
-        bg_pdf = PdfReader(packet)
-        bg_page = bg_pdf.pages[0]
-        bg_page.merge_page(page)
-        output.add_page(bg_page)
+                print(f"[DEBUG] Page {page_num}: Logo drawn", flush=True)
+            else:
+                print(f"[DEBUG] Page {page_num}: No logo image", flush=True)
+            
+            can.save()
+            print(f"[DEBUG] Page {page_num}: Canvas saved", flush=True)
+            
+            # ★★★ 핵심 수정: merge 순서 반대로 ★★★
+            # 배경(overlay)을 먼저, 원본(page)을 위에 덮어씌움
+            packet.seek(0)
+            overlay_pdf = PdfReader(packet)
+            overlay_page = overlay_pdf.pages[0]
+            
+            # 원본 페이지를 배경 위에 올림
+            overlay_page.merge_page(page)
+            output.add_page(overlay_page)
+            print(f"[DEBUG] Page {page_num}: Merged (overlay + page) and added", flush=True)
+            
+        except Exception as e:
+            print(f"[PAGE {page_num} ERROR] {e}", flush=True)
+            import traceback
+            print(traceback.format_exc(), flush=True)
     
     final_pdf = BytesIO()
     output.write(final_pdf)
     final_pdf.seek(0)
+    print("[DEBUG] PDF generation complete", flush=True)
     return final_pdf.read()
