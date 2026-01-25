@@ -9,7 +9,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.8.7"
+    version="1.8.8"
 )
 
 # ==================================================
@@ -241,32 +241,45 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             await page.goto(url, wait_until="networkidle", timeout=60000)
             await page.wait_for_timeout(3000)
             
-            # 표지 강제 A4 크기
+            # 표지와 본문 강제 분리
             await page.evaluate("""
                 const cover = document.querySelector('.report-cover');
                 if (cover) {
-                    cover.style.width = '210mm';
-                    cover.style.height = '297mm';
-                    cover.style.minHeight = '297mm';
-                    cover.style.maxHeight = '297mm';
-                    cover.style.margin = '0';
-                    cover.style.padding = '0';
-                    cover.style.boxSizing = 'border-box';
                     cover.style.pageBreakAfter = 'always';
-                    cover.style.overflow = 'hidden';
+                    cover.style.breakAfter = 'page';
+                    cover.style.background = 'transparent';
                 }
+                
+                const container = document.querySelector('.report-container');
+                if (container) {
+                    container.style.paddingTop = '25mm';
+                    container.style.paddingBottom = '30mm';
+                    container.style.pageBreakBefore = 'always';
+                }
+                
+                if (container) {
+                    container.style.backgroundImage = 'url(/report-bg.png)';
+                    container.style.backgroundSize = 'cover';
+                    container.style.backgroundRepeat = 'no-repeat';
+                    container.style.backgroundAttachment = 'fixed';
+                }
+                
+                document.documentElement.style.webkitPrintColorAdjust = 'exact';
+                document.documentElement.style.printColorAdjust = 'exact';
             """)
             
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(1000)
             
             pdf_bytes = await page.pdf(
                 format="A4",
                 print_background=True,
-                margin={"top": "0", "bottom": "0", "left": "0", "right": "0"},
-                prefer_css_page_size=False,
-                scale=1.0,
-                width="210mm",
-                height="297mm"
+                margin={
+                    "top": "20mm",
+                    "bottom": "25mm",
+                    "left": "15mm",
+                    "right": "15mm"
+                },
+                prefer_css_page_size=False
             )
             
             await browser.close()
