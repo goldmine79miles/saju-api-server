@@ -371,14 +371,16 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
             # 배경 이미지 (먼저 그림)
             if bg_image:
                 img_reader = ImageReader(bg_image)
+                # 비율 유지하면서 A4에 맞춤 (꽃 무늬가 잘리지 않도록)
                 can.drawImage(
                     img_reader,
                     0, 0,
                     width=page_width,
                     height=page_height,
-                    preserveAspectRatio=False
+                    preserveAspectRatio=True,
+                    anchor='c'  # 중앙 정렬
                 )
-                print(f"[DEBUG] Page {page_num}: Background drawn", flush=True)
+                print(f"[DEBUG] Page {page_num}: Background drawn (preserveAspectRatio=True)", flush=True)
             else:
                 print(f"[DEBUG] Page {page_num}: No background image", flush=True)
             
