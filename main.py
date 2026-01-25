@@ -9,7 +9,7 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
 app = FastAPI(
     title="Saju API Server",
-    version="1.8.9"
+    version="1.9.0"
 )
 
 # ==================================================
@@ -241,21 +241,26 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             await page.goto(url, wait_until="networkidle", timeout=60000)
             await page.wait_for_timeout(3000)
             
-            # 표지와 본문 강제 분리 (배경은 pypdf에서만 추가)
+            # PDF 생성 시에만 여백 강제 제거 (웹은 그대로)
             await page.evaluate("""
+                // 표지 여백 제거
                 const cover = document.querySelector('.report-cover');
                 if (cover) {
+                    cover.style.padding = '0';
+                    cover.style.margin = '0';
                     cover.style.pageBreakAfter = 'always';
                     cover.style.breakAfter = 'page';
                 }
                 
-                const container = document.querySelector('.report-container');
+                // 본문 컨테이너 여백 최소화
+                const container = document.querySelectorAll('[style*="max-width"]')[0];
                 if (container) {
-                    container.style.paddingTop = '25mm';
-                    container.style.paddingBottom = '30mm';
+                    container.style.padding = '15mm 15mm';
+                    container.style.margin = '0';
                     container.style.pageBreakBefore = 'always';
                 }
                 
+                // 프린트 색상 유지
                 document.documentElement.style.webkitPrintColorAdjust = 'exact';
                 document.documentElement.style.printColorAdjust = 'exact';
             """)
