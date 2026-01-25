@@ -252,21 +252,13 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
                     cover.style.breakAfter = 'page';
                 }
                 
-                // 본문 컨테이너 여백 제거
+                // 본문 컨테이너 여백 최소화
                 const container = document.querySelectorAll('[style*="max-width"]')[0];
                 if (container) {
-                    container.style.padding = '0';
+                    container.style.padding = '15mm 15mm';
                     container.style.margin = '0';
-                    container.style.maxWidth = '100%';
                     container.style.pageBreakBefore = 'always';
                 }
-                
-                // 모든 section 여백 제거
-                const sections = document.querySelectorAll('section');
-                sections.forEach(s => {
-                    s.style.margin = '0';
-                    s.style.padding = '15mm';  // 내부 컨텐츠만 padding
-                });
                 
                 // 프린트 색상 유지
                 document.documentElement.style.webkitPrintColorAdjust = 'exact';
@@ -373,8 +365,8 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
         packet.seek(0)
         bg_pdf = PdfReader(packet)
         bg_page = bg_pdf.pages[0]
-        bg_page.merge_page(page)
-        output.add_page(bg_page)
+        page.merge_page(bg_page)  # 순서 변경: 페이지 위에 배경
+        output.add_page(page)
     
     final_pdf = BytesIO()
     output.write(final_pdf)
