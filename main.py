@@ -242,45 +242,64 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             
             # PDF 생성 전 표지만 여백 제거 + body 배경 투명하게
             await page.evaluate("""
+                console.log('[JS] ========== START PDF MODIFICATIONS ==========');
+                
                 const cover = document.querySelector('.report-cover');
                 if (cover) {
                     cover.style.padding = '0';
                     cover.style.margin = '0';
+                    console.log('[JS] ✅ Cover padding removed');
+                } else {
+                    console.log('[JS] ❌ Cover not found');
                 }
                 
                 // body 배경을 투명하게 (pypdf 배경이 보이도록)
                 document.body.style.background = 'transparent';
                 document.documentElement.style.background = 'transparent';
+                console.log('[JS] ✅ Body background transparent');
                 
                 // ★ 목차 다음에 강제 페이지 넘김 ★
-                const tocSections = document.querySelectorAll('section');
-                for (let section of tocSections) {
-                    const text = section.textContent || '';
-                    // 목차 박스를 찾음 (【목차】 포함)
-                    if (text.includes('【목차】') || text.includes('[목차]')) {
+                const allSections = document.querySelectorAll('section');
+                console.log('[JS] Total sections found:', allSections.length);
+                
+                let tocFound = false;
+                for (let i = 0; i < allSections.length; i++) {
+                    const section = allSections[i];
+                    const text = (section.textContent || '').trim();
+                    
+                    // 목차 박스 찾기 (【목차】 또는 "1. " 포함)
+                    if ((text.includes('【목차】') || text.includes('[목차]') || text.includes('목차')) && text.includes('1.')) {
                         section.style.pageBreakAfter = 'always';
                         section.style.breakAfter = 'page';
-                        console.log('[JS] TOC page-break-after applied');
+                        console.log('[JS] ✅ TOC page-break applied at section', i);
+                        tocFound = true;
                         break;
                     }
                 }
+                if (!tocFound) {
+                    console.log('[JS] ❌ TOC section NOT found');
+                }
                 
-                // ★ 본문 섹션 상하 축소 (로고 공간 확보) ★
-                const whiteSections = document.querySelectorAll('section');
-                for (let section of whiteSections) {
+                // ★ 본문 섹션 margin 추가 ★
+                let bodyCount = 0;
+                for (let i = 0; i < allSections.length; i++) {
+                    const section = allSections[i];
                     const bgColor = window.getComputedStyle(section).backgroundColor;
-                    // 흰색 배경 섹션 = 본문
+                    
+                    // 흰색 배경 = 본문
                     if (bgColor.includes('255, 255, 255')) {
-                        // 박스 자체를 위아래로 축소 (베이지 배경 노출)
                         section.style.marginTop = '60px';
                         section.style.marginBottom = '60px';
-                        section.style.minHeight = 'calc(100vh - 140px)'; // 위60 + 아래60 + 여유20
-                        console.log('[JS] Body section margin applied');
+                        bodyCount++;
+                        console.log('[JS] ✅ Body margin applied at section', i);
                     }
                 }
+                console.log('[JS] Total body sections modified:', bodyCount);
+                
+                console.log('[JS] ========== END PDF MODIFICATIONS ==========');
             """)
             
-            await page.wait_for_timeout(1000)
+            await page.wait_for_timeout(2000)  # 2초로 증가
             
             # margin 0으로 (표지 꽉 차게)
             pdf_bytes = await page.pdf(
