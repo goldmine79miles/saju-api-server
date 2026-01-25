@@ -244,68 +244,70 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
             print("[PYTHON] Starting JavaScript evaluation...", flush=True)
             
             result = await page.evaluate("""
-                console.log('[JS] ========== START PDF MODIFICATIONS ==========');
-                
-                const cover = document.querySelector('.report-cover');
-                if (cover) {
-                    cover.style.padding = '0';
-                    cover.style.margin = '0';
-                    console.log('[JS] ✅ Cover padding removed');
-                } else {
-                    console.log('[JS] ❌ Cover not found');
-                }
-                
-                // body 배경을 투명하게 (pypdf 배경이 보이도록)
-                document.body.style.background = 'transparent';
-                document.documentElement.style.background = 'transparent';
-                console.log('[JS] ✅ Body background transparent');
-                
-                // ★ 목차 다음에 강제 페이지 넘김 ★
-                const allSections = document.querySelectorAll('section');
-                console.log('[JS] Total sections found:', allSections.length);
-                
-                let tocFound = false;
-                for (let i = 0; i < allSections.length; i++) {
-                    const section = allSections[i];
-                    const text = (section.textContent || '').trim();
+                (() => {
+                    console.log('[JS] ========== START PDF MODIFICATIONS ==========');
                     
-                    // 목차 박스 찾기 (【목차】 또는 "1. " 포함)
-                    if ((text.includes('【목차】') || text.includes('[목차]') || text.includes('목차')) && text.includes('1.')) {
-                        section.style.pageBreakAfter = 'always';
-                        section.style.breakAfter = 'page';
-                        console.log('[JS] ✅ TOC page-break applied at section', i);
-                        tocFound = true;
-                        break;
+                    const cover = document.querySelector('.report-cover');
+                    if (cover) {
+                        cover.style.padding = '0';
+                        cover.style.margin = '0';
+                        console.log('[JS] ✅ Cover padding removed');
+                    } else {
+                        console.log('[JS] ❌ Cover not found');
                     }
-                }
-                if (!tocFound) {
-                    console.log('[JS] ❌ TOC section NOT found');
-                }
-                
-                // ★ 본문 섹션 margin 추가 ★
-                let bodyCount = 0;
-                for (let i = 0; i < allSections.length; i++) {
-                    const section = allSections[i];
-                    const bgColor = window.getComputedStyle(section).backgroundColor;
                     
-                    // 흰색 배경 = 본문
-                    if (bgColor.includes('255, 255, 255')) {
-                        section.style.marginTop = '60px';
-                        section.style.marginBottom = '60px';
-                        bodyCount++;
-                        console.log('[JS] ✅ Body margin applied at section', i);
+                    // body 배경을 투명하게 (pypdf 배경이 보이도록)
+                    document.body.style.background = 'transparent';
+                    document.documentElement.style.background = 'transparent';
+                    console.log('[JS] ✅ Body background transparent');
+                    
+                    // ★ 목차 다음에 강제 페이지 넘김 ★
+                    const allSections = document.querySelectorAll('section');
+                    console.log('[JS] Total sections found:', allSections.length);
+                    
+                    let tocFound = false;
+                    for (let i = 0; i < allSections.length; i++) {
+                        const section = allSections[i];
+                        const text = (section.textContent || '').trim();
+                        
+                        // 목차 박스 찾기
+                        if ((text.includes('【목차】') || text.includes('[목차]') || text.includes('목차')) && text.includes('1.')) {
+                            section.style.pageBreakAfter = 'always';
+                            section.style.breakAfter = 'page';
+                            console.log('[JS] ✅ TOC page-break applied at section', i);
+                            tocFound = true;
+                            break;
+                        }
                     }
-                }
-                console.log('[JS] Total body sections modified:', bodyCount);
-                
-                console.log('[JS] ========== END PDF MODIFICATIONS ==========');
-                
-                // Python으로 결과 리턴
-                return {
-                    sections: allSections.length,
-                    tocFound: tocFound,
-                    bodyCount: bodyCount
-                };
+                    if (!tocFound) {
+                        console.log('[JS] ❌ TOC section NOT found');
+                    }
+                    
+                    // ★ 본문 섹션 margin 추가 ★
+                    let bodyCount = 0;
+                    for (let i = 0; i < allSections.length; i++) {
+                        const section = allSections[i];
+                        const bgColor = window.getComputedStyle(section).backgroundColor;
+                        
+                        // 흰색 배경 = 본문
+                        if (bgColor.includes('255, 255, 255')) {
+                            section.style.marginTop = '60px';
+                            section.style.marginBottom = '60px';
+                            bodyCount++;
+                            console.log('[JS] ✅ Body margin applied at section', i);
+                        }
+                    }
+                    console.log('[JS] Total body sections modified:', bodyCount);
+                    
+                    console.log('[JS] ========== END PDF MODIFICATIONS ==========');
+                    
+                    // Python으로 결과 리턴
+                    return {
+                        sections: allSections.length,
+                        tocFound: tocFound,
+                        bodyCount: bodyCount
+                    };
+                })()
             """)
             
             print(f"[PYTHON] JavaScript executed! Result: {result}", flush=True)
