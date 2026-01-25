@@ -329,8 +329,29 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
     
     print(f"[DEBUG] Total pages: {len(original_pdf.pages)}", flush=True)
     
+    # ★ 2페이지 빈 페이지 체크 및 삭제 ★
+    pages_to_process = []
     for page_num in range(len(original_pdf.pages)):
         page = original_pdf.pages[page_num]
+        
+        # 2페이지(index 1)가 거의 비어있는지 체크
+        if page_num == 1:
+            try:
+                text = page.extract_text().strip()
+                print(f"[DEBUG] Page 1 text length: {len(text)}", flush=True)
+                
+                # 텍스트가 50자 이하면 빈 페이지로 간주하고 건너뜀
+                if len(text) < 50:
+                    print(f"[DEBUG] Page 1 is blank (text < 50 chars), SKIPPING", flush=True)
+                    continue
+            except:
+                pass
+        
+        pages_to_process.append((page_num, page))
+    
+    print(f"[DEBUG] Pages to process after blank removal: {[p[0] for p in pages_to_process]}", flush=True)
+    
+    for page_num, page in pages_to_process:
         
         print(f"[DEBUG] Processing page {page_num}", flush=True)
         
