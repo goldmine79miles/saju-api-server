@@ -84,6 +84,50 @@ def _jieqi_term_dt_map(jieqi_list):
 STEMS = ["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"]
 BRANCHES = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
 
+
+# ==================================================
+# ILJU ANIMAL (Color + Zodiac Animal)
+# - Color from Day Stem element
+# - Animal from Day Branch (12 zodiac)
+# ==================================================
+STEM_ELEMENT = {
+    "甲": "목", "乙": "목",
+    "丙": "화", "丁": "화",
+    "戊": "토", "己": "토",
+    "庚": "금", "辛": "금",
+    "壬": "수", "癸": "수",
+}
+ELEMENT_COLOR_KR = {
+    "목": "푸른",
+    "화": "붉은",
+    "토": "누런",
+    "금": "하얀",
+    "수": "검은",
+}
+BRANCH_ANIMAL_KR = {
+    "子": "쥐", "丑": "소", "寅": "호랑이", "卯": "토끼",
+    "辰": "용", "巳": "뱀", "午": "말", "未": "양",
+    "申": "원숭이", "酉": "닭", "戌": "개", "亥": "돼지",
+}
+ANIMAL_EMOJI = {
+    "쥐": "🐭", "소": "🐮", "호랑이": "🐯", "토끼": "🐰",
+    "용": "🐲", "뱀": "🐍", "말": "🐴", "양": "🐑",
+    "원숭이": "🐵", "닭": "🐔", "개": "🐶", "돼지": "🐷",
+}
+
+def get_ilju_animal(day_gan: str, day_ji: str) -> str:
+    """Return e.g. '하얀 돼지'. Deterministic mapping only."""
+    elem = STEM_ELEMENT.get(day_gan, "")
+    color = ELEMENT_COLOR_KR.get(elem, "")
+    animal = BRANCH_ANIMAL_KR.get(day_ji, "")
+    if not color or not animal:
+        return ""
+    return f"{color} {animal}"
+
+def get_ilju_emoji(day_ji: str) -> str:
+    animal = BRANCH_ANIMAL_KR.get(day_ji, "")
+    return ANIMAL_EMOJI.get(animal, "🐾")
+
 DAY_PILLAR_JDN_OFFSET = 49
 
 def gregorian_to_jdn(y, m, d):
@@ -204,6 +248,8 @@ def calc_saju(
     return {
         "input": {"birth": birth, "calendar": calendar, "birth_time": birth_time, "gender": gender},
         "pillars": {"year": year_pillar, "month": month_pillar, "day": day_pillar, "hour": hour_pillar},
+        "ilju_animal": get_ilju_animal(day_pillar.get("stem",""), day_pillar.get("branch","")),
+        "ilju_emoji": get_ilju_emoji(day_pillar.get("branch","")),
         "debug": {
             "timezone": "KST",
             "fixed_offset_minutes": SEOUL_FIXED_OFFSET_MINUTES if has_time else 0,
