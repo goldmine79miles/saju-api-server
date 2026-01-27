@@ -521,12 +521,12 @@ def calc_saju(
         if _p:
             enrich_pillar(_p, day_stem)
             # 12운성 (hour가 없으면 자동 스킵)
-_branch = _p.get("branch")
-if _branch:
-    # 점신/당근 호환: 각 기둥의 '천간' 기준으로 12운성 산출
-    # (연주는 연간, 월주는 월간, 일주는 일간, 시주는 시간)
-    base_stem = _p.get("stem") or day_stem
-    _p["twelve_stage"] = twelve_stage(base_stem, _branch)
+            _branch = _p.get("branch")
+            if _branch:
+                # 점신/당근 호환: 각 기둥의 '천간' 기준으로 12운성 산출
+                    # (연주는 연간, 월주는 월간, 일주는 일간, 시주는 시간)
+                    base_stem = _p.get("stem") or day_stem
+                    _p["twelve_stage"] = twelve_stage(base_stem, _branch)
 
     return {
         "input": {
