@@ -179,6 +179,118 @@ BRANCHES = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","�
 
 
 # ==================================================
+# KR READING + TEN GODS + HIDDEN STEMS (for infographic)
+# SSOT in API: frontend should render only.
+# ==================================================
+STEM_KR = {
+    "甲": "갑", "乙": "을", "丙": "병", "丁": "정", "戊": "무",
+    "己": "기", "庚": "경", "辛": "신", "壬": "임", "癸": "계",
+}
+BRANCH_KR = {
+    "子": "자", "丑": "축", "寅": "인", "卯": "묘", "辰": "진", "巳": "사",
+    "午": "오", "未": "미", "申": "신", "酉": "유", "戌": "술", "亥": "해",
+}
+
+YANG_STEMS = set(["甲","丙","戊","庚","壬"])
+STEM_POLARITY = {s: ("yang" if s in YANG_STEMS else "yin") for s in STEMS}
+
+STEM_ELEMENT_HANJA = {
+    "甲": "목", "乙": "목",
+    "丙": "화", "丁": "화",
+    "戊": "토", "己": "토",
+    "庚": "금", "辛": "금",
+    "壬": "수", "癸": "수",
+}
+
+# Generating cycle: wood -> fire -> earth -> metal -> water -> wood
+GEN = {"목": "화", "화": "토", "토": "금", "금": "수", "수": "목"}
+# Controlling cycle: wood controls earth, earth controls water, water controls fire, fire controls metal, metal controls wood
+CTL = {"목": "토", "토": "수", "수": "화", "화": "금", "금": "목"}
+
+def ten_god_of_stem(day_stem: str, target_stem: str) -> str:
+    """Return 십성 of target_stem relative to day_stem (일간 기준).
+    Uses standard element+yin/yang rules:
+      - same element: 비견/겁재
+      - day generates target: 식신/상관
+      - day controls target: 편재/정재
+      - target controls day: 편관/정관
+      - target generates day: 편인/정인
+    """
+    if not day_stem or not target_stem:
+        return ""
+    de = STEM_ELEMENT_HANJA.get(day_stem)
+    te = STEM_ELEMENT_HANJA.get(target_stem)
+    if not de or not te:
+        return ""
+
+    same_polar = (STEM_POLARITY.get(day_stem) == STEM_POLARITY.get(target_stem))
+
+    if te == de:
+        return "비견" if same_polar else "겁재"
+
+    # day generates target => output gods
+    if GEN.get(de) == te:
+        return "식신" if same_polar else "상관"
+
+    # day controls target => wealth gods
+    if CTL.get(de) == te:
+        return "편재" if same_polar else "정재"
+
+    # target controls day => officer gods
+    if CTL.get(te) == de:
+        return "편관" if same_polar else "정관"
+
+    # target generates day => resource gods
+    if GEN.get(te) == de:
+        return "편인" if same_polar else "정인"
+
+    return ""
+
+# Hidden stems by branch (지장간)
+HIDDEN_STEMS_BY_BRANCH = {
+    "子": ["癸"],
+    "丑": ["己","癸","辛"],
+    "寅": ["甲","丙","戊"],
+    "卯": ["乙"],
+    "辰": ["戊","乙","癸"],
+    "巳": ["丙","戊","庚"],
+    "午": ["丁","己"],
+    "未": ["己","丁","乙"],
+    "申": ["庚","壬","戊"],
+    "酉": ["辛"],
+    "戌": ["戊","辛","丁"],
+    "亥": ["壬","甲"],
+}
+
+# Main hidden stem (정기) for branch ten-god
+MAIN_HIDDEN_STEM_BY_BRANCH = {
+    "子": "癸", "丑": "己", "寅": "甲", "卯": "乙",
+    "辰": "戊", "巳": "丙", "午": "丁", "未": "己",
+    "申": "庚", "酉": "辛", "戌": "戊", "亥": "壬",
+}
+
+def enrich_pillar(p: dict, day_stem: str):
+    """Mutate pillar dict in-place to include KR reading + ten gods + hidden stems."""
+    if not p:
+        return
+    stem = p.get("stem")
+    branch = p.get("branch")
+
+    if stem:
+        p["stem_kr"] = STEM_KR.get(stem, "")
+        p["ten_god_stem"] = ten_god_of_stem(day_stem, stem)
+
+    if branch:
+        p["branch_kr"] = BRANCH_KR.get(branch, "")
+        hidden = HIDDEN_STEMS_BY_BRANCH.get(branch, [])
+        p["hidden_stems"] = hidden
+        p["ten_god_hidden"] = [ten_god_of_stem(day_stem, hs) for hs in hidden]
+        main_hidden = MAIN_HIDDEN_STEM_BY_BRANCH.get(branch, "")
+        p["ten_god_branch"] = ten_god_of_stem(day_stem, main_hidden) if main_hidden else ""
+
+
+
+# ==================================================
 # ILJU ANIMAL (Color + Zodiac Animal)
 # - Color from Day Stem element
 # - Animal from Day Branch (12 zodiac)
@@ -368,6 +480,16 @@ def calc_saju(
     month_pillar = get_month_pillar(input_dt, year_pillar, jieqi_this, jieqi_prev)
     hour_pillar = get_hour_pillar(day_pillar, calc_dt.hour, calc_dt.minute) if has_time else None
 
+# --------------------------------------------------
+# 3.5) Enrich pillars for infographic (ten gods + hidden stems)
+# --------------------------------------------------
+pillars = {"year": year_pillar, "month": month_pillar, "day": day_pillar, "hour": hour_pillar}
+day_stem = (day_pillar or {}).get("stem", "")
+for _k in ("year", "month", "day", "hour"):
+    _p = pillars.get(_k)
+    if _p:
+        enrich_pillar(_p, day_stem)
+
     return {
         "input": {
             "birth": birth,
@@ -385,7 +507,7 @@ def calc_saju(
             },
             "lunar": lunar_meta,
         },
-        "pillars": {"year": year_pillar, "month": month_pillar, "day": day_pillar, "hour": hour_pillar},
+        "pillars": pillars,
         "ilju_animal": get_ilju_animal(day_pillar.get("stem", ""), day_pillar.get("branch", "")),
         "ilju_emoji": get_ilju_emoji(day_pillar.get("branch", "")),
         "debug": {
