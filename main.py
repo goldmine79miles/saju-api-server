@@ -611,7 +611,7 @@ STEM_ELEMENT = {
 ELEMENT_COLOR_KR = {
     "목": "푸른",
     "화": "붉은",
-    "토": "황금",
+    "토": "누런",
     "금": "하얀",
     "수": "검은",
 }
@@ -833,6 +833,15 @@ def calc_saju(
             "is_leap_month": is_leap_month,
         },
         "meta": {
+            "solar_confirmed": {
+                "year": int(birth_confirmed_json["solar"]["year"]),
+                "month": int(birth_confirmed_json["solar"]["month"]),
+                "day": int(birth_confirmed_json["solar"]["day"]),
+                "label_kr": birth_confirmed_json["solar"].get("label_kr") or f"양력 {birth_confirmed_json['solar']['year']}년 {birth_confirmed_json['solar']['month']}월 {birth_confirmed_json['solar']['day']}일",
+            },
+            # Back-compat: 기존 프론트/route.ts가 meta.lunar를 참조할 수 있음
+            "lunar": birth_confirmed_json.get("lunar") or {},
+            # New SSOT blob (DB 저장용)
             "birth_confirmed_json": birth_confirmed_json,
         },
         "pillars": pillars,
