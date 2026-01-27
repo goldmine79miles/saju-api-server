@@ -290,6 +290,16 @@ HIDDEN_STEMS_BY_BRANCH = {
     "亥": ["壬","甲"],
 }
 
+
+
+# Display-only padding for hidden stems (UI only; no calculation impact)
+HIDDEN_STEMS_DISPLAY_PAD = {
+    "亥": "戊",
+    "子": "戊",
+    "卯": "戊",
+    "酉": "戊",
+}
+
 # Main hidden stem (정기) for branch ten-god
 MAIN_HIDDEN_STEM_BY_BRANCH = {
     "子": "癸", "丑": "己", "寅": "甲", "卯": "乙",
@@ -315,6 +325,15 @@ def enrich_pillar(p: dict, day_stem: str):
         # display helpers (traditional stems preserved; Korean reading for UI)
         p["hidden_stems_kr"] = [STEM_KR.get(hs, "") for hs in hidden]
         p["hidden_stems_dot"] = "·".join([STEM_KR.get(hs, "") for hs in hidden if STEM_KR.get(hs, "")])
+        # display-only (3 fixed)
+        display = list(hidden)
+        if len(display) == 2:
+            pad = HIDDEN_STEMS_DISPLAY_PAD.get(branch)
+            if pad:
+                display = display + [pad]
+        p["hidden_stems_display"] = display
+        p["hidden_stems_display_kr"] = [STEM_KR.get(hs, "") for hs in display]
+        p["hidden_stems_display_dot"] = "·".join([STEM_KR.get(hs, "") for hs in display if STEM_KR.get(hs, "")])
         p["ten_god_hidden"] = [ten_god_of_stem(day_stem, hs) for hs in hidden]
         main_hidden = MAIN_HIDDEN_STEM_BY_BRANCH.get(branch, "")
         p["ten_god_branch"] = ten_god_of_stem(day_stem, main_hidden) if main_hidden else ""
