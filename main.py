@@ -196,12 +196,24 @@ JANGSAENG_START_BY_STEM = {
 BRANCH_INDEX = {b: i for i, b in enumerate(BRANCHES)}
 
 def twelve_stage(day_stem: str, target_branch: str) -> str:
+    """12운성(점신/만세력 표기 호환):
+    - 기준: '일간(일주 천간)'을 기준으로 각 지지의 12운성을 산출
+    - 방향: 양간(甲丙戊庚壬)=순행, 음간(乙丁己辛癸)=역행
+    """
     if not day_stem or not target_branch:
         return ""
     start = JANGSAENG_START_BY_STEM.get(day_stem)
     if not start:
         return ""
-    idx = (BRANCH_INDEX[target_branch] - BRANCH_INDEX[start]) % 12
+
+    # 양간/음간 판정
+    is_yang = day_stem in ("甲", "丙", "戊", "庚", "壬")
+
+    if is_yang:
+        idx = (BRANCH_INDEX[target_branch] - BRANCH_INDEX[start]) % 12
+    else:
+        idx = (BRANCH_INDEX[start] - BRANCH_INDEX[target_branch]) % 12
+
     return TWELVE_STAGES[idx]
 
 
@@ -544,7 +556,7 @@ def calc_saju(
             if _branch:
                 # 점신/당근 호환: 각 기둥의 '천간' 기준으로 12운성 산출
                     # (연주는 연간, 월주는 월간, 일주는 일간, 시주는 시간)
-                    base_stem = _p.get("stem") or day_stem
+                    base_stem = day_stem
                     _p["twelve_stage"] = twelve_stage(base_stem, _branch)
 
     return {
