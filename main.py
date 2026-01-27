@@ -284,6 +284,9 @@ def enrich_pillar(p: dict, day_stem: str):
         p["branch_kr"] = BRANCH_KR.get(branch, "")
         hidden = HIDDEN_STEMS_BY_BRANCH.get(branch, [])
         p["hidden_stems"] = hidden
+        # display helpers (traditional stems preserved; Korean reading for UI)
+        p["hidden_stems_kr"] = [STEM_KR.get(hs, "") for hs in hidden]
+        p["hidden_stems_dot"] = "·".join([STEM_KR.get(hs, "") for hs in hidden if STEM_KR.get(hs, "")])
         p["ten_god_hidden"] = [ten_god_of_stem(day_stem, hs) for hs in hidden]
         main_hidden = MAIN_HIDDEN_STEM_BY_BRANCH.get(branch, "")
         p["ten_god_branch"] = ten_god_of_stem(day_stem, main_hidden) if main_hidden else ""
