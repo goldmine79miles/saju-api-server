@@ -179,6 +179,34 @@ BRANCHES = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","�
 
 
 # ==================================================
+# TWELVE STAGES (12운성) — SSOT
+# 기준: 일간(day_stem) + 대상 지지(branch)
+# ==================================================
+TWELVE_STAGES = ["장생","목욕","관대","임관","제왕","쇠","병","사","묘","절","태","양"]
+
+# 장생 시작 지지 (일간 기준)
+JANGSAENG_START_BY_STEM = {
+    "甲": "亥", "乙": "午",
+    "丙": "寅", "丁": "酉",
+    "戊": "寅", "己": "酉",
+    "庚": "巳", "辛": "子",
+    "壬": "申", "癸": "卯",
+}
+
+BRANCH_INDEX = {b: i for i, b in enumerate(BRANCHES)}
+
+def twelve_stage(day_stem: str, target_branch: str) -> str:
+    if not day_stem or not target_branch:
+        return ""
+    start = JANGSAENG_START_BY_STEM.get(day_stem)
+    if not start:
+        return ""
+    idx = (BRANCH_INDEX[target_branch] - BRANCH_INDEX[start]) % 12
+    return TWELVE_STAGES[idx]
+
+
+
+# ==================================================
 # KR READING + TEN GODS + HIDDEN STEMS (for infographic)
 # SSOT in API: frontend should render only.
 # ==================================================
@@ -492,6 +520,10 @@ def calc_saju(
         _p = pillars.get(_k)
         if _p:
             enrich_pillar(_p, day_stem)
+            # 12운성 (hour가 없으면 자동 스킵)
+            _branch = _p.get("branch")
+            if _branch:
+                _p["twelve_stage"] = twelve_stage(day_stem, _branch)
 
     return {
         "input": {
