@@ -33,6 +33,146 @@ SEOUL_FIXED_OFFSET_MINUTES = 32
 
 
 # ==================================================
+# Birth Confirmed SSOT Cache (KASI 장애 대비)
+# - Goal: once a conversion is computed, reuse it deterministically.
+# - Storage here is a local JSON cache file (API-level). Front/DB can persist the same blob as SSOT.
+# ==================================================
+BIRTH_CONFIRMED_CACHE_PATH = DATA_DIR / "birth_confirmed_cache.json"
+
+def _load_birth_confirmed_cache() -> dict:
+    try:
+        if not BIRTH_CONFIRMED_CACHE_PATH.exists():
+            return {}
+        with BIRTH_CONFIRMED_CACHE_PATH.open("r", encoding="utf-8") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+def _save_birth_confirmed_cache(cache: dict) -> None:
+    try:
+        BIRTH_CONFIRMED_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = BIRTH_CONFIRMED_CACHE_PATH.with_suffix(".tmp")
+        with tmp.open("w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+        tmp.replace(BIRTH_CONFIRMED_CACHE_PATH)
+    except Exception:
+        # cache is best-effort only
+        return
+
+def _bc_key(birth: str, calendar: str, is_leap_month: bool) -> str:
+    cal = (calendar or "solar").lower()
+    return f"{cal}|{birth}|leap={1 if is_leap_month else 0}"
+
+def _try_fallback_lunar_to_solar(lun_year: int, lun_month: int, lun_day: int, is_leap: bool):
+    """Fallback lunar->solar conversion when KASI is unavailable.
+    Tries korean_lunar_calendar first if installed. Returns dict or None.
+    """
+    try:
+        from korean_lunar_calendar import KoreanLunarCalendar  # type: ignore
+        cal = KoreanLunarCalendar()
+        cal.setLunarDate(lun_year, lun_month, lun_day, is_leap)
+        y, m, d = map(int, cal.SolarIsoFormat().split("-"))
+        return {"year": y, "month": m, "day": d}
+    except Exception:
+        return None
+
+def build_birth_confirmed_json(
+    birth: str,
+    calendar: str,
+    is_leap_month: bool,
+    calc_dt_iso: str,
+    fixed_offset_minutes: int,
+) -> dict:
+    """Build SSOT birth_confirmed_json.
+    Priority:
+      1) Local cache hit -> source='cache'
+      2) KASI -> source='KASI' (and write cache)
+      3) Fallback lib -> source='fallback' (and write cache)
+    """
+    key = _bc_key(birth, calendar, bool(is_leap_month))
+    cache = _load_birth_confirmed_cache()
+    if key in cache and isinstance(cache.get(key), dict):
+        out = cache[key]
+        out["calc_dt"] = calc_dt_iso
+        out["fixed_offset_minutes"] = fixed_offset_minutes
+        out["source"] = out.get("source") or "cache"
+        return out
+
+    # Parse input date
+    bd = datetime.strptime(birth, "%Y-%m-%d").date()
+    cal = (calendar or "solar").lower()
+
+    try:
+        if cal == "lunar":
+            sol = kasi_lun_to_sol(bd.year, bd.month, bd.day, bool(is_leap_month))
+            solar = {"year": sol["year"], "month": sol["month"], "day": sol["day"],
+                     "label_kr": f"양력 {sol['year']}년 {sol['month']}월 {sol['day']}일"}
+        else:
+            solar = {"year": bd.year, "month": bd.month, "day": bd.day,
+                     "label_kr": f"양력 {bd.year}년 {bd.month}월 {bd.day}일"}
+
+        lunar = kasi_sol_to_lun(solar["year"], solar["month"], solar["day"])
+        out = {
+            "solar": solar,
+            "lunar": lunar,
+            "calc_dt": calc_dt_iso,
+            "fixed_offset_minutes": fixed_offset_minutes,
+            "source": "KASI",
+        }
+        cache[key] = out
+        _save_birth_confirmed_cache(cache)
+        return out
+    except Exception:
+        # KASI failed -> fallback only for lunar input. For solar input, we can still proceed with solar.
+        if cal == "solar":
+            try:
+                lunar = kasi_sol_to_lun(bd.year, bd.month, bd.day)  # may still fail; ok
+                out = {
+                    "solar": {"year": bd.year, "month": bd.month, "day": bd.day,
+                              "label_kr": f"양력 {bd.year}년 {bd.month}월 {bd.day}일"},
+                    "lunar": lunar,
+                    "calc_dt": calc_dt_iso,
+                    "fixed_offset_minutes": fixed_offset_minutes,
+                    "source": "fallback",
+                }
+                cache[key] = out
+                _save_birth_confirmed_cache(cache)
+                return out
+            except Exception:
+                # absolute fallback: keep only solar
+                out = {
+                    "solar": {"year": bd.year, "month": bd.month, "day": bd.day,
+                              "label_kr": f"양력 {bd.year}년 {bd.month}월 {bd.day}일"},
+                    "lunar": {"year": None, "month": None, "day": None, "is_leap_month": False, "label_kr": "", "_raw": {}},
+                    "calc_dt": calc_dt_iso,
+                    "fixed_offset_minutes": fixed_offset_minutes,
+                    "source": "fallback",
+                }
+                cache[key] = out
+                _save_birth_confirmed_cache(cache)
+                return out
+
+        # lunar input: need lunar->solar to compute pillars
+        fb = _try_fallback_lunar_to_solar(bd.year, bd.month, bd.day, bool(is_leap_month))
+        if not fb:
+            raise
+        solar = {"year": fb["year"], "month": fb["month"], "day": fb["day"],
+                 "label_kr": f"양력 {fb['year']}년 {fb['month']}월 {fb['day']}일"}
+        # Try to derive lunar label from input
+        lunar_label = f"음력 {bd.year}년 " + (f"윤{bd.month}월 " if bool(is_leap_month) else f"{bd.month}월 ") + f"{bd.day}일"
+        out = {
+            "solar": solar,
+            "lunar": {"year": bd.year, "month": bd.month, "day": bd.day, "is_leap_month": bool(is_leap_month), "label_kr": lunar_label, "_raw": {}},
+            "calc_dt": calc_dt_iso,
+            "fixed_offset_minutes": fixed_offset_minutes,
+            "source": "fallback",
+        }
+        cache[key] = out
+        _save_birth_confirmed_cache(cache)
+        return out
+
+
+# ==================================================
 # KASI (Korea Astronomy and Space Science Institute) Calendar API
 # - Solar <-> Lunar conversion (including leap month validation)
 # - Authority: KASI via data.go.kr OpenAPI
@@ -597,26 +737,21 @@ def calc_saju(
     from fastapi import HTTPException
 
     # --------------------------------------------------
-    # 1) Interpret input date by calendar type
-    # - calendar=solar: birth is solar YYYY-MM-DD
-    # - calendar=lunar: birth is lunar YYYY-MM-DD (+ is_leap_month)
-    # Always compute pillars based on confirmed solar date (SSOT for calculation).
+    # 1) Birth Confirmed SSOT (KASI + cache + fallback)
     # --------------------------------------------------
     try:
-        birth_date_in = datetime.strptime(birth, "%Y-%m-%d").date()
-
-        if (calendar or "").lower() == "lunar":
-            sol = kasi_lun_to_sol(
-                birth_date_in.year, birth_date_in.month, birth_date_in.day, bool(is_leap_month)
-            )
-            solar_confirmed = date(sol["year"], sol["month"], sol["day"])
-        else:
-            solar_confirmed = birth_date_in
-
-        # For UI/infographic: always provide normalized lunar derived from confirmed solar
-        lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
+        # calc_dt/fixed_offset are finalized after time parse; for now use a placeholder and update below
+        _placeholder_calc_dt = ""
+        _placeholder_offset = 0
+        birth_confirmed_json = {
+            "solar": {"year": None, "month": None, "day": None, "label_kr": ""},
+            "lunar": {"year": None, "month": None, "day": None, "is_leap_month": False, "label_kr": "", "_raw": {}},
+            "calc_dt": _placeholder_calc_dt,
+            "fixed_offset_minutes": _placeholder_offset,
+            "source": "",
+        }
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"KASI calendar conversion failed: {e}")
+        raise HTTPException(status_code=500, detail=f"birth_confirmed_json init failed: {e}")
 
     # --------------------------------------------------
     # 2) Time handling (kept as-is)
@@ -629,8 +764,33 @@ def calc_saju(
         hh, mm = 0, 0
         has_time = False
 
+        # input_dt is based on confirmed solar date (SSOT)
+
+    # input_dt is based on confirmed solar date (SSOT)
     input_dt = datetime(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day, hh, mm, tzinfo=KST)
     calc_dt = input_dt - timedelta(minutes=SEOUL_FIXED_OFFSET_MINUTES) if has_time else input_dt
+
+
+    # --------------------------------------------------
+    # 1.5) Build birth_confirmed_json now that calc_dt is known
+    # --------------------------------------------------
+    try:
+        fixed_offset_minutes = SEOUL_FIXED_OFFSET_MINUTES if has_time else 0
+        birth_confirmed_json = build_birth_confirmed_json(
+            birth=birth,
+            calendar=calendar,
+            is_leap_month=bool(is_leap_month),
+            calc_dt_iso=calc_dt.isoformat(),
+            fixed_offset_minutes=fixed_offset_minutes,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"calendar SSOT failed: {e}")
+
+    solar_confirmed = date(
+        int(birth_confirmed_json["solar"]["year"]),
+        int(birth_confirmed_json["solar"]["month"]),
+        int(birth_confirmed_json["solar"]["day"]),
+    )
 
     # --------------------------------------------------
     # 3) Pillar calculation (solar-based)
@@ -673,20 +833,14 @@ def calc_saju(
             "is_leap_month": is_leap_month,
         },
         "meta": {
-            "solar_confirmed": {
-                "year": input_dt.year,
-                "month": input_dt.month,
-                "day": input_dt.day,
-                "label_kr": f"양력 {input_dt.year}년 {input_dt.month}월 {input_dt.day}일",
-            },
-            "lunar": lunar_meta,
+            "birth_confirmed_json": birth_confirmed_json,
         },
         "pillars": pillars,
         "ilju_animal": get_ilju_animal(day_pillar.get("stem", ""), day_pillar.get("branch", "")),
         "ilju_emoji": get_ilju_emoji(day_pillar.get("branch", "")),
         "debug": {
             "timezone": "KST",
-            "fixed_offset_minutes": SEOUL_FIXED_OFFSET_MINUTES if has_time else 0,
+            "fixed_offset_minutes": fixed_offset_minutes,
             "input_dt": input_dt.isoformat(),
             "calc_dt": calc_dt.isoformat(),
             "saju_year": saju_year,
