@@ -399,6 +399,15 @@ HIDDEN_STEMS_DISPLAY_PAD = {
     "酉": "戊",
 }
 
+# Display-only override for hidden stems (UI only; '점신' style)
+# - NOTE: These are NOT traditional hidden stems additions; they are UI normalization rules to match the reference app.
+# - Traditional calculation remains in HIDDEN_STEMS_BY_BRANCH / hidden_stems.
+HIDDEN_STEMS_DISPLAY_OVERRIDE = {
+    # 午: traditional hidden stems are 丁·己(2). Reference UI shows 丙·己·丁 (3).
+    "午": ["丙", "己", "丁"],
+}
+
+
 # Main hidden stem (정기) for branch ten-god
 MAIN_HIDDEN_STEM_BY_BRANCH = {
     "子": "癸", "丑": "己", "寅": "甲", "卯": "乙",
@@ -424,12 +433,20 @@ def enrich_pillar(p: dict, day_stem: str):
         # display helpers (traditional stems preserved; Korean reading for UI)
         p["hidden_stems_kr"] = [STEM_KR.get(hs, "") for hs in hidden]
         p["hidden_stems_dot"] = "·".join([STEM_KR.get(hs, "") for hs in hidden if STEM_KR.get(hs, "")])
-        # display-only (3 fixed)
-        display = list(hidden)
-        if len(display) == 2:
-            pad = HIDDEN_STEMS_DISPLAY_PAD.get(branch)
-            if pad:
-                display = display + [pad]
+        # display-only (UI normalization; reference app compatible)
+        # Priority:
+        # 1) Explicit override (e.g., 午 -> 丙·己·丁)
+        # 2) If exactly 2 stems and pad exists, append pad
+        # 3) Otherwise keep traditional stems as-is
+        if branch in HIDDEN_STEMS_DISPLAY_OVERRIDE:
+            display = list(HIDDEN_STEMS_DISPLAY_OVERRIDE[branch])
+        else:
+            display = list(hidden)
+            if len(display) == 2:
+                pad = HIDDEN_STEMS_DISPLAY_PAD.get(branch)
+                if pad:
+                    display = display + [pad]
+
         p["hidden_stems_display"] = display
         p["hidden_stems_display_kr"] = [STEM_KR.get(hs, "") for hs in display]
         p["hidden_stems_display_dot"] = "·".join([STEM_KR.get(hs, "") for hs in display if STEM_KR.get(hs, "")])
