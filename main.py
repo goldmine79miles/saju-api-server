@@ -568,9 +568,18 @@ def calc_saju(
         if _p:
             enrich_pillar(_p, day_stem)
             # 12운성 (hour가 없으면 자동 스킵)
+            # 자시(23:00~23:59) 보정: 사주원국(간지/십성/지장간 등)은 그대로 두고,
+            # 12운성 '표시'만 점신/당근 기준과 맞추기 위해 시주에 한해 기준 일간을 +1일로 본다.
             _branch = _p.get("branch")
             if _branch:
-                _p["twelve_stage"] = twelve_stage(day_stem, _branch)
+                stage_base_stem = day_stem
+                if _k == "hour" and has_time and hh == 23:
+                    try:
+                        next_day = input_dt.date() + timedelta(days=1)
+                        stage_base_stem = get_day_pillar(next_day).get("stem", day_stem) or day_stem
+                    except Exception:
+                        stage_base_stem = day_stem
+                _p["twelve_stage"] = twelve_stage(stage_base_stem, _branch)
 
     return {
         "input": {
