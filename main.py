@@ -4,6 +4,8 @@ from zoneinfo import ZoneInfo
 import json
 import os
 from pathlib import Path
+import requests
+import xml.etree.ElementTree as ET
 
 print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 
@@ -28,6 +30,97 @@ KST = ZoneInfo("Asia/Seoul")
 UTC = timezone.utc
 
 SEOUL_FIXED_OFFSET_MINUTES = 32
+
+
+# ==================================================
+# KASI (Korea Astronomy and Space Science Institute) Calendar API
+# - Solar <-> Lunar conversion (including leap month validation)
+# - Authority: KASI via data.go.kr OpenAPI
+# ==================================================
+KASI_SERVICE_KEY = os.getenv("KASI_SERVICE_KEY", "").strip()
+KASI_BASE = "https://apis.data.go.kr/B090041/openapi/service/LrsrCldInfoService"
+
+def _kasi_parse_item(resp: requests.Response) -> dict:
+    """Parse KASI response item safely (JSON preferred, XML fallback)."""
+    # JSON (when _type=json works)
+    try:
+        data = resp.json()
+        item = (
+            data.get("response", {})
+                .get("body", {})
+                .get("items", {})
+                .get("item")
+        )
+        if isinstance(item, list):
+            item = item[0] if item else None
+        if isinstance(item, dict):
+            return item
+    except Exception:
+        pass
+
+    # XML fallback
+    try:
+        root = ET.fromstring(resp.text or "")
+        item_el = root.find(".//item")
+        if item_el is None:
+            return {}
+        out = {}
+        for child in list(item_el):
+            out[child.tag] = (child.text or "").strip()
+        return out
+    except Exception:
+        return {}
+
+def _kasi_call(endpoint: str, params: dict) -> dict:
+    if not KASI_SERVICE_KEY:
+        raise RuntimeError("KASI_SERVICE_KEY is missing on server")
+
+    q = {"serviceKey": KASI_SERVICE_KEY, "_type": "json"}
+    q.update(params)
+    url = f"{KASI_BASE}/{endpoint}"
+
+    resp = requests.get(url, params=q, timeout=10)
+    if resp.status_code != 200:
+        raise RuntimeError(f"KASI HTTP {resp.status_code}: {resp.text[:200]}")
+
+    item = _kasi_parse_item(resp)
+    if not item:
+        raise RuntimeError(f"KASI returned empty item: {resp.text[:200]}")
+    return item
+
+def kasi_sol_to_lun(sol_year: int, sol_month: int, sol_day: int) -> dict:
+    """Solar -> Lunar. Returns normalized lunar fields + leap flag."""
+    item = _kasi_call("getLunCalInfo", {
+        "solYear": str(sol_year),
+        "solMonth": f"{sol_month:02d}",
+        "solDay": f"{sol_day:02d}",
+    })
+    lun_year = int(item.get("lunYear"))
+    lun_month = int(item.get("lunMonth"))
+    lun_day = int(item.get("lunDay"))
+    leap = (item.get("lunLeapmonth") == "윤")
+    label = f"음력 {lun_year}년 " + (f"윤{lun_month}월 " if leap else f"{lun_month}월 ") + f"{lun_day}일"
+    return {
+        "year": lun_year,
+        "month": lun_month,
+        "day": lun_day,
+        "is_leap_month": leap,
+        "label_kr": label,
+        "_raw": {k: item.get(k) for k in ("lunLeapmonth","lunSecha","lunIljin") if k in item}
+    }
+
+def kasi_lun_to_sol(lun_year: int, lun_month: int, lun_day: int, is_leap_month: bool) -> dict:
+    """Lunar(+leap) -> Solar. Returns confirmed solar date."""
+    item = _kasi_call("getSolCalInfo", {
+        "lunYear": str(lun_year),
+        "lunMonth": f"{lun_month:02d}",
+        "lunDay": f"{lun_day:02d}",
+        "lunLeapmonth": "윤" if is_leap_month else "평",
+    })
+    sol_year = int(item.get("solYear"))
+    sol_month = int(item.get("solMonth"))
+    sol_day = int(item.get("solDay"))
+    return {"year": sol_year, "month": sol_month, "day": sol_day}
 
 def load_jieqi_table():
     if not JIEQI_TABLE_PATH.exists():
@@ -221,22 +314,57 @@ def calc_saju(
     calendar: str = Query("solar"),
     birth_time: str = Query("unknown"),
     gender: str = Query("unknown"),
+    is_leap_month: bool = Query(False),
 ):
-    birth_date = datetime.strptime(birth, "%Y-%m-%d")
-    bt = (birth_time or "").strip().lower()
-    if bt and bt not in ("unknown", "null", "none"):
-        hh, mm = map(int, bt.split(":"))
-        has_time = True
+
+# --------------------------------------------------
+# 1) Interpret input date by calendar type
+# - calendar=solar: birth is solar YYYY-MM-DD
+# - calendar=lunar: birth is lunar YYYY-MM-DD (+ is_leap_month)
+# Always compute pillars based on confirmed solar date (SSOT for calculation).
+# --------------------------------------------------
+birth_date_in = datetime.strptime(birth, "%Y-%m-%d").date()
+
+try:
+    if (calendar or "").lower() == "lunar":
+        sol = kasi_lun_to_sol(birth_date_in.year, birth_date_in.month, birth_date_in.day, bool(is_leap_month))
+        solar_confirmed = date(sol["year"], sol["month"], sol["day"])
     else:
-        hh, mm = 0, 0
-        has_time = False
+        solar_confirmed = birth_date_in
 
-    input_dt = datetime(birth_date.year, birth_date.month, birth_date.day, hh, mm, tzinfo=KST)
-    calc_dt = input_dt - timedelta(minutes=SEOUL_FIXED_OFFSET_MINUTES) if has_time else input_dt
+    # For UI/infographic: always provide normalized lunar derived from confirmed solar
+    lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
+except Exception as e:
+    from fastapi import HTTPException
+    raise HTTPException(status_code=502, detail=f"KASI calendar conversion failed: {e}")
 
-    jieqi_this = get_jieqi_with_fallback(str(input_dt.year))
-    ipchun_dt = find_ipchun_dt(jieqi_this)
-    saju_year = input_dt.year if input_dt >= ipchun_dt else input_dt.year - 1
+# --------------------------------------------------
+# 2) Time handling (kept as-is)
+# --------------------------------------------------
+bt = (birth_time or "").strip().lower()
+if bt and bt not in ("unknown", "null", "none"):
+    hh, mm = map(int, bt.split(":"))
+    has_time = True
+else:
+    hh, mm = 0, 0
+    has_time = False
+
+input_dt = datetime(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day, hh, mm, tzinfo=KST)
+calc_dt = input_dt - timedelta(minutes=SEOUL_FIXED_OFFSET_MINUTES) if has_time else input_dt
+
+# --------------------------------------------------
+# 3) Pillar calculation (solar-based)
+# --------------------------------------------------
+jieqi_this = get_jieqi_with_fallback(str(input_dt.year))
+ipchun_dt = find_ipchun_dt(jieqi_this)
+saju_year = input_dt.year if input_dt >= ipchun_dt else input_dt.year - 1
+
+year_pillar = get_year_pillar(saju_year)
+day_pillar = get_day_pillar(input_dt.date())
+
+jieqi_prev = get_jieqi_with_fallback(str(input_dt.year - 1))
+month_pillar = get_month_pillar(input_dt, year_pillar, jieqi_this, jieqi_prev)
+hour_pillar = get_hour_pillar(day_pillar, calc_dt.hour, calc_dt.minute) if has_time else None
 
     year_pillar = get_year_pillar(saju_year)
     day_pillar = get_day_pillar(input_dt.date())
@@ -246,7 +374,17 @@ def calc_saju(
     hour_pillar = get_hour_pillar(day_pillar, calc_dt.hour, calc_dt.minute) if has_time else None
 
     return {
-        "input": {"birth": birth, "calendar": calendar, "birth_time": birth_time, "gender": gender},
+        "input": {"birth": birth, "calendar": calendar, "birth_time": birth_time, "gender": gender, "is_leap_month": is_leap_month},
+
+"meta": {
+    "solar_confirmed": {
+        "year": input_dt.year,
+        "month": input_dt.month,
+        "day": input_dt.day,
+        "label_kr": f"양력 {input_dt.year}년 {input_dt.month}월 {input_dt.day}일"
+    },
+    "lunar": lunar_meta
+},
         "pillars": {"year": year_pillar, "month": month_pillar, "day": day_pillar, "hour": hour_pillar},
         "ilju_animal": get_ilju_animal(day_pillar.get("stem",""), day_pillar.get("branch","")),
         "ilju_emoji": get_ilju_emoji(day_pillar.get("branch","")),
