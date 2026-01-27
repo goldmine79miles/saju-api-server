@@ -480,15 +480,15 @@ def calc_saju(
     month_pillar = get_month_pillar(input_dt, year_pillar, jieqi_this, jieqi_prev)
     hour_pillar = get_hour_pillar(day_pillar, calc_dt.hour, calc_dt.minute) if has_time else None
 
-# --------------------------------------------------
-# 3.5) Enrich pillars for infographic (ten gods + hidden stems)
-# --------------------------------------------------
-pillars = {"year": year_pillar, "month": month_pillar, "day": day_pillar, "hour": hour_pillar}
-day_stem = (day_pillar or {}).get("stem", "")
-for _k in ("year", "month", "day", "hour"):
-    _p = pillars.get(_k)
-    if _p:
-        enrich_pillar(_p, day_stem)
+    # --------------------------------------------------
+    # 3.5) Enrich pillars for infographic (ten gods + hidden stems)
+    # --------------------------------------------------
+    pillars = {"year": year_pillar, "month": month_pillar, "day": day_pillar, "hour": hour_pillar}
+    day_stem = (day_pillar or {}).get("stem", "")
+    for _k in ("year", "month", "day", "hour"):
+        _p = pillars.get(_k)
+        if _p:
+            enrich_pillar(_p, day_stem)
 
     return {
         "input": {
