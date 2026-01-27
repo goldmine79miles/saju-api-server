@@ -179,6 +179,30 @@ BRANCHES = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","�
 
 
 # ==================================================
+# TWELVE SINSAL (12신살) — SSOT
+# 기준: 일지(日支) → 대상 지지(branch)
+# 프론트 계산 금지 (API에서만 산출)
+# ==================================================
+# 점신 기준: 일지와 동일 지지는 "지살"
+# 지지 순환에 따라 고정 시퀀스 적용
+TWELVE_SINSAL_SEQ = [
+    "지살","반안살","역마살","육해살","화개살","겁살",
+    "재살","천살","지살","월살","망신살","도화살"
+]
+
+def twelve_sinsal(day_branch: str, target_branch: str) -> str:
+    if not day_branch or not target_branch:
+        return ""
+    try:
+        di = BRANCH_INDEX[day_branch]
+        ti = BRANCH_INDEX[target_branch]
+    except KeyError:
+        return ""
+    # 순환 차이
+    idx = (ti - di) % 12
+    return TWELVE_SINSAL_SEQ[idx]
+
+# ==================================================
 # TWELVE STAGES (12운성) — SSOT
 # 기준: 일간(day_stem) + 대상 지지(branch)
 # ==================================================
@@ -558,6 +582,7 @@ def calc_saju(
                     # (연주는 연간, 월주는 월간, 일주는 일간, 시주는 시간)
                     base_stem = day_stem
                     _p["twelve_stage"] = twelve_stage(base_stem, _branch)
+                    _p["twelve_sinsal"] = twelve_sinsal(pillars.get("day",{}).get("branch",""), _branch)
 
     return {
         "input": {
