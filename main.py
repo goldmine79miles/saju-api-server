@@ -290,6 +290,48 @@ HIDDEN_STEMS_BY_BRANCH = {
     "亥": ["壬","甲"],
 }
 
+
+# Display-only hidden stems (지장간 표시용 3칸 고정)
+# - 계산/십성용 hidden_stems는 '정본' 그대로 유지
+# - UI 비교(점신/당근) 호환을 위해, 1~2개 지지는 '여기/중기'를 보정해 3개로 맞춤
+# - 표기 순서: 여기(餘氣) · 중기(中氣) · 정기(正氣)
+HIDDEN_STEMS_DISPLAY_BY_BRANCH = {
+    # 1개 지지 보정
+    "子": ["戊", "壬", "癸"],      # 무·임·계
+    "卯": ["癸", "甲", "乙"],      # 계·갑·을
+    "酉": ["戊", "庚", "辛"],      # 무·경·신
+
+    # 2개 지지 보정
+    "午": ["丙", "己", "丁"],      # 병·기·정
+    "亥": ["戊", "甲", "壬"],      # 무·갑·임  (점신식)
+
+    # 3개 지지는 정본을 '여기·중기·정기' 순으로 통일
+    "丑": ["辛", "癸", "己"],      # 신·계·기
+    "寅": ["戊", "丙", "甲"],      # 무·병·갑
+    "辰": ["癸", "乙", "戊"],      # 계·을·무
+    "巳": ["庚", "戊", "丙"],      # 경·무·병
+    "未": ["乙", "丁", "己"],      # 을·정·기
+    "申": ["戊", "壬", "庚"],      # 무·임·경
+    "戌": ["丁", "辛", "戊"],      # 정·신·무
+}
+
+
+def hidden_stems_display(branch: str) -> list:
+    """Return display-only hidden stems list of length 3 (or empty)."""
+    if not branch:
+        return []
+    ds = HIDDEN_STEMS_DISPLAY_BY_BRANCH.get(branch)
+    if ds:
+        return ds
+    base = HIDDEN_STEMS_BY_BRANCH.get(branch, [])
+    if len(base) >= 3:
+        return base[:3]
+    if len(base) == 2:
+        return [base[0], base[1], base[0]]
+    if len(base) == 1:
+        return [base[0], base[0], base[0]]
+    return []
+
 # Main hidden stem (정기) for branch ten-god
 MAIN_HIDDEN_STEM_BY_BRANCH = {
     "子": "癸", "丑": "己", "寅": "甲", "卯": "乙",
@@ -315,6 +357,11 @@ def enrich_pillar(p: dict, day_stem: str):
         # display helpers (traditional stems preserved; Korean reading for UI)
         p["hidden_stems_kr"] = [STEM_KR.get(hs, "") for hs in hidden]
         p["hidden_stems_dot"] = "·".join([STEM_KR.get(hs, "") for hs in hidden if STEM_KR.get(hs, "")])
+        # display-only (3칸 고정, 점신/당근 호환)
+        disp = hidden_stems_display(branch)
+        p["hidden_stems_display"] = disp
+        p["hidden_stems_display_kr"] = [STEM_KR.get(hs, "") for hs in disp]
+        p["hidden_stems_display_dot"] = "·".join([STEM_KR.get(hs, "") for hs in disp if STEM_KR.get(hs, "")])
         p["ten_god_hidden"] = [ten_god_of_stem(day_stem, hs) for hs in hidden]
         main_hidden = MAIN_HIDDEN_STEM_BY_BRANCH.get(branch, "")
         p["ten_god_branch"] = ten_god_of_stem(day_stem, main_hidden) if main_hidden else ""
