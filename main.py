@@ -737,45 +737,56 @@ def calc_saju(
     from fastapi import HTTPException
 
     # --------------------------------------------------
-    # 1) Birth Confirmed SSOT (KASI + cache + fallback)
+    # 0) Parse inputs
     # --------------------------------------------------
     try:
-        # calc_dt/fixed_offset are finalized after time parse; for now use a placeholder and update below
-        _placeholder_calc_dt = ""
-        _placeholder_offset = 0
-        birth_confirmed_json = {
-            "solar": {"year": None, "month": None, "day": None, "label_kr": ""},
-            "lunar": {"year": None, "month": None, "day": None, "is_leap_month": False, "label_kr": "", "_raw": {}},
-            "calc_dt": _placeholder_calc_dt,
-            "fixed_offset_minutes": _placeholder_offset,
-            "source": "",
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"birth_confirmed_json init failed: {e}")
+        bd = datetime.strptime(birth, "%Y-%m-%d").date()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid birth format (expected YYYY-MM-DD)")
 
-    # --------------------------------------------------
-    # 2) Time handling (kept as-is)
-    # --------------------------------------------------
     bt = (birth_time or "").strip().lower()
     if bt and bt not in ("unknown", "null", "none"):
-        hh, mm = map(int, bt.split(":"))
+        try:
+            hh, mm = map(int, bt.split(":"))
+        except Exception:
+            raise HTTPException(status_code=400, detail="invalid birth_time format (expected HH:MM)")
         has_time = True
     else:
         hh, mm = 0, 0
         has_time = False
 
-        # input_dt is based on confirmed solar date (SSOT)
+    fixed_offset_minutes = SEOUL_FIXED_OFFSET_MINUTES if has_time else 0
+    cal = (calendar or "solar").strip().lower()
 
-    # input_dt is based on confirmed solar date (SSOT)
+    # --------------------------------------------------
+    # 1) Resolve confirmed solar date (SSOT)
+    #   - Needed before we can build input_dt/calc_dt
+    # --------------------------------------------------
+    try:
+        if cal == "lunar":
+            try:
+                sol = kasi_lun_to_sol(bd.year, bd.month, bd.day, bool(is_leap_month))
+                solar_confirmed = date(int(sol["year"]), int(sol["month"]), int(sol["day"]))
+            except Exception:
+                fb = _try_fallback_lunar_to_solar(bd.year, bd.month, bd.day, bool(is_leap_month))
+                if not fb:
+                    raise
+                solar_confirmed = date(int(fb["year"]), int(fb["month"]), int(fb["day"]))
+        else:
+            solar_confirmed = bd
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"calendar resolve failed: {e}")
+
+    # --------------------------------------------------
+    # 2) Time handling (kept as-is)
+    # --------------------------------------------------
     input_dt = datetime(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day, hh, mm, tzinfo=KST)
     calc_dt = input_dt - timedelta(minutes=SEOUL_FIXED_OFFSET_MINUTES) if has_time else input_dt
 
-
     # --------------------------------------------------
-    # 1.5) Build birth_confirmed_json now that calc_dt is known
+    # 3) Birth Confirmed SSOT (KASI + cache + fallback)
     # --------------------------------------------------
     try:
-        fixed_offset_minutes = SEOUL_FIXED_OFFSET_MINUTES if has_time else 0
         birth_confirmed_json = build_birth_confirmed_json(
             birth=birth,
             calendar=calendar,
@@ -786,14 +797,22 @@ def calc_saju(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"calendar SSOT failed: {e}")
 
-    solar_confirmed = date(
-        int(birth_confirmed_json["solar"]["year"]),
-        int(birth_confirmed_json["solar"]["month"]),
-        int(birth_confirmed_json["solar"]["day"]),
-    )
+    # Trust SSOT solar if present
+    try:
+        if birth_confirmed_json.get("solar", {}).get("year"):
+            solar_confirmed = date(
+                int(birth_confirmed_json["solar"]["year"]),
+                int(birth_confirmed_json["solar"]["month"]),
+                int(birth_confirmed_json["solar"]["day"]),
+            )
+            # keep input_dt/calc_dt aligned for downstream logic
+            input_dt = datetime(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day, hh, mm, tzinfo=KST)
+            calc_dt = input_dt - timedelta(minutes=SEOUL_FIXED_OFFSET_MINUTES) if has_time else input_dt
+    except Exception:
+        pass
 
     # --------------------------------------------------
-    # 3) Pillar calculation (solar-based)
+    # 4) Pillar calculation (solar-based)
     # --------------------------------------------------
     jieqi_this = get_jieqi_with_fallback(str(input_dt.year))
     ipchun_dt = find_ipchun_dt(jieqi_this)
@@ -807,22 +826,24 @@ def calc_saju(
     hour_pillar = get_hour_pillar(day_pillar, calc_dt.hour, calc_dt.minute) if has_time else None
 
     # --------------------------------------------------
-    # 3.5) Enrich pillars for infographic (ten gods + hidden stems)
+    # 5) Enrich pillars for infographic (ten gods + hidden stems)
     # --------------------------------------------------
     pillars = {"year": year_pillar, "month": month_pillar, "day": day_pillar, "hour": hour_pillar}
     day_stem = (day_pillar or {}).get("stem", "")
+    day_branch = (day_pillar or {}).get("branch", "")
+
     for _k in ("year", "month", "day", "hour"):
         _p = pillars.get(_k)
-        if _p:
-            enrich_pillar(_p, day_stem)
-            # 12운성 (hour가 없으면 자동 스킵)
-            _branch = _p.get("branch")
-            if _branch:
-                # 점신/당근 호환: 각 기둥의 '천간' 기준으로 12운성 산출
-                    # (연주는 연간, 월주는 월간, 일주는 일간, 시주는 시간)
-                    base_stem = day_stem
-                    _p["twelve_stage"] = twelve_stage(base_stem, _branch)
-                    _p["twelve_sinsal"] = twelve_sinsal(pillars.get("day",{}).get("branch",""), _branch)
+        if not _p:
+            continue
+
+        enrich_pillar(_p, day_stem)
+
+        _branch = _p.get("branch")
+        if _branch:
+            # 12운성/12신살
+            _p["twelve_stage"] = twelve_stage(day_stem, _branch)
+            _p["twelve_sinsal"] = twelve_sinsal(day_branch, _branch)
 
     return {
         "input": {
@@ -833,13 +854,14 @@ def calc_saju(
             "is_leap_month": is_leap_month,
         },
         "meta": {
+            # Back-compat: 기존 프론트/route.ts가 meta.solar_confirmed / meta.lunar를 참조
             "solar_confirmed": {
                 "year": int(birth_confirmed_json["solar"]["year"]),
                 "month": int(birth_confirmed_json["solar"]["month"]),
                 "day": int(birth_confirmed_json["solar"]["day"]),
-                "label_kr": birth_confirmed_json["solar"].get("label_kr") or f"양력 {birth_confirmed_json['solar']['year']}년 {birth_confirmed_json['solar']['month']}월 {birth_confirmed_json['solar']['day']}일",
+                "label_kr": birth_confirmed_json["solar"].get("label_kr")
+                    or f"양력 {birth_confirmed_json['solar']['year']}년 {birth_confirmed_json['solar']['month']}월 {birth_confirmed_json['solar']['day']}일",
             },
-            # Back-compat: 기존 프론트/route.ts가 meta.lunar를 참조할 수 있음
             "lunar": birth_confirmed_json.get("lunar") or {},
             # New SSOT blob (DB 저장용)
             "birth_confirmed_json": birth_confirmed_json,
@@ -855,6 +877,7 @@ def calc_saju(
             "saju_year": saju_year,
         },
     }
+
 
 
 
