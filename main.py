@@ -316,55 +316,50 @@ def calc_saju(
     gender: str = Query("unknown"),
     is_leap_month: bool = Query(False),
 ):
-
-# --------------------------------------------------
-# 1) Interpret input date by calendar type
-# - calendar=solar: birth is solar YYYY-MM-DD
-# - calendar=lunar: birth is lunar YYYY-MM-DD (+ is_leap_month)
-# Always compute pillars based on confirmed solar date (SSOT for calculation).
-# --------------------------------------------------
-birth_date_in = datetime.strptime(birth, "%Y-%m-%d").date()
-
-try:
-    if (calendar or "").lower() == "lunar":
-        sol = kasi_lun_to_sol(birth_date_in.year, birth_date_in.month, birth_date_in.day, bool(is_leap_month))
-        solar_confirmed = date(sol["year"], sol["month"], sol["day"])
-    else:
-        solar_confirmed = birth_date_in
-
-    # For UI/infographic: always provide normalized lunar derived from confirmed solar
-    lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
-except Exception as e:
     from fastapi import HTTPException
-    raise HTTPException(status_code=502, detail=f"KASI calendar conversion failed: {e}")
 
-# --------------------------------------------------
-# 2) Time handling (kept as-is)
-# --------------------------------------------------
-bt = (birth_time or "").strip().lower()
-if bt and bt not in ("unknown", "null", "none"):
-    hh, mm = map(int, bt.split(":"))
-    has_time = True
-else:
-    hh, mm = 0, 0
-    has_time = False
+    # --------------------------------------------------
+    # 1) Interpret input date by calendar type
+    # - calendar=solar: birth is solar YYYY-MM-DD
+    # - calendar=lunar: birth is lunar YYYY-MM-DD (+ is_leap_month)
+    # Always compute pillars based on confirmed solar date (SSOT for calculation).
+    # --------------------------------------------------
+    try:
+        birth_date_in = datetime.strptime(birth, "%Y-%m-%d").date()
 
-input_dt = datetime(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day, hh, mm, tzinfo=KST)
-calc_dt = input_dt - timedelta(minutes=SEOUL_FIXED_OFFSET_MINUTES) if has_time else input_dt
+        if (calendar or "").lower() == "lunar":
+            sol = kasi_lun_to_sol(
+                birth_date_in.year, birth_date_in.month, birth_date_in.day, bool(is_leap_month)
+            )
+            solar_confirmed = date(sol["year"], sol["month"], sol["day"])
+        else:
+            solar_confirmed = birth_date_in
 
-# --------------------------------------------------
-# 3) Pillar calculation (solar-based)
-# --------------------------------------------------
-jieqi_this = get_jieqi_with_fallback(str(input_dt.year))
-ipchun_dt = find_ipchun_dt(jieqi_this)
-saju_year = input_dt.year if input_dt >= ipchun_dt else input_dt.year - 1
+        # For UI/infographic: always provide normalized lunar derived from confirmed solar
+        lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"KASI calendar conversion failed: {e}")
 
-year_pillar = get_year_pillar(saju_year)
-day_pillar = get_day_pillar(input_dt.date())
+    # --------------------------------------------------
+    # 2) Time handling (kept as-is)
+    # --------------------------------------------------
+    bt = (birth_time or "").strip().lower()
+    if bt and bt not in ("unknown", "null", "none"):
+        hh, mm = map(int, bt.split(":"))
+        has_time = True
+    else:
+        hh, mm = 0, 0
+        has_time = False
 
-jieqi_prev = get_jieqi_with_fallback(str(input_dt.year - 1))
-month_pillar = get_month_pillar(input_dt, year_pillar, jieqi_this, jieqi_prev)
-hour_pillar = get_hour_pillar(day_pillar, calc_dt.hour, calc_dt.minute) if has_time else None
+    input_dt = datetime(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day, hh, mm, tzinfo=KST)
+    calc_dt = input_dt - timedelta(minutes=SEOUL_FIXED_OFFSET_MINUTES) if has_time else input_dt
+
+    # --------------------------------------------------
+    # 3) Pillar calculation (solar-based)
+    # --------------------------------------------------
+    jieqi_this = get_jieqi_with_fallback(str(input_dt.year))
+    ipchun_dt = find_ipchun_dt(jieqi_this)
+    saju_year = input_dt.year if input_dt >= ipchun_dt else input_dt.year - 1
 
     year_pillar = get_year_pillar(saju_year)
     day_pillar = get_day_pillar(input_dt.date())
@@ -374,28 +369,34 @@ hour_pillar = get_hour_pillar(day_pillar, calc_dt.hour, calc_dt.minute) if has_t
     hour_pillar = get_hour_pillar(day_pillar, calc_dt.hour, calc_dt.minute) if has_time else None
 
     return {
-        "input": {"birth": birth, "calendar": calendar, "birth_time": birth_time, "gender": gender, "is_leap_month": is_leap_month},
-
-"meta": {
-    "solar_confirmed": {
-        "year": input_dt.year,
-        "month": input_dt.month,
-        "day": input_dt.day,
-        "label_kr": f"양력 {input_dt.year}년 {input_dt.month}월 {input_dt.day}일"
-    },
-    "lunar": lunar_meta
-},
+        "input": {
+            "birth": birth,
+            "calendar": calendar,
+            "birth_time": birth_time,
+            "gender": gender,
+            "is_leap_month": is_leap_month,
+        },
+        "meta": {
+            "solar_confirmed": {
+                "year": input_dt.year,
+                "month": input_dt.month,
+                "day": input_dt.day,
+                "label_kr": f"양력 {input_dt.year}년 {input_dt.month}월 {input_dt.day}일",
+            },
+            "lunar": lunar_meta,
+        },
         "pillars": {"year": year_pillar, "month": month_pillar, "day": day_pillar, "hour": hour_pillar},
-        "ilju_animal": get_ilju_animal(day_pillar.get("stem",""), day_pillar.get("branch","")),
-        "ilju_emoji": get_ilju_emoji(day_pillar.get("branch","")),
+        "ilju_animal": get_ilju_animal(day_pillar.get("stem", ""), day_pillar.get("branch", "")),
+        "ilju_emoji": get_ilju_emoji(day_pillar.get("branch", "")),
         "debug": {
             "timezone": "KST",
             "fixed_offset_minutes": SEOUL_FIXED_OFFSET_MINUTES if has_time else 0,
             "input_dt": input_dt.isoformat(),
             "calc_dt": calc_dt.isoformat(),
-            "saju_year": saju_year
-        }
+            "saju_year": saju_year,
+        },
     }
+
 
 
 # =========================
