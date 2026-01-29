@@ -1,3 +1,77 @@
+
+# ==================================================
+# SSOT: Calendar Cache (Solar/Lunar) — guarded, non-breaking
+# - Uses calendar_ssot table if DB driver is available
+# - Falls back to KASI if anything is missing
+# ==================================================
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    _SSOT_DB_OK = True
+except Exception:
+    _SSOT_DB_OK = False
+
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+def _ssot_get_conn():
+    if not (_SSOT_DB_OK and DATABASE_URL):
+        return None
+    try:
+        return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    except Exception:
+        return None
+
+def ssot_lookup(birth: date, calendar: str, is_leap_month: bool):
+    conn = _ssot_get_conn()
+    if not conn:
+        return None
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select *
+                from public.calendar_ssot
+                where birth = %s and calendar = %s and is_leap_month = %s
+                limit 1
+                """,
+                (birth, calendar, bool(is_leap_month)),
+            )
+            return cur.fetchone()
+    except Exception:
+        return None
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def ssot_upsert(birth: date, calendar: str, is_leap_month: bool, solar_confirmed: date, lunar_meta: dict):
+    conn = _ssot_get_conn()
+    if not conn:
+        return
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.calendar_ssot
+                (birth, calendar, is_leap_month, solar_confirmed, lunar_confirmed, meta_json)
+                values (%s,%s,%s,%s,%s,%s)
+                on conflict (birth, calendar, is_leap_month)
+                do update set
+                  solar_confirmed = excluded.solar_confirmed,
+                  lunar_confirmed = excluded.lunar_confirmed,
+                  meta_json = excluded.meta_json
+                """,
+                (
+                    birth, calendar, bool(is_leap_month),
+                    solar_confirmed,
+                    json.dumps(lunar_meta),
+                    json.dumps({"source":"kasi","cached_at": datetime.now(tz=UTC).isoformat()}),
+                ),
+            )
+    except Exception:
+        pass
+    finally:
+        try: conn.close()
+        except Exception: pass
 from fastapi import FastAPI, Query
 from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
