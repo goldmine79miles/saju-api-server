@@ -710,64 +710,63 @@ def calc_saju(
 
     # --------------------------------------------------
     # --------------------------------------------------
-    
-# 1) Interpret input date by calendar type (SSOT 강제 라우팅)
-# - calendar=solar: birth is solar YYYY-MM-DD
-# - calendar=lunar: birth is lunar YYYY-MM-DD (+ is_leap_month)
-#
-# SSOT RULE (최우선)
-#   A) SSOT hit  -> 외부(KASI) 호출 없이 SSOT 값 사용
-#   B) SSOT miss -> KASI 호출 후 SSOT에 반드시 upsert (idempotent)
-#   C) DB 불가   -> KASI로 진행(비상 폴백) + meta에 상태 표기
-#
-# NOTE: calendar_ssot PK는 (birth, calendar, is_leap_month).
-#       같은 키로 여러 번 조회하면 "새 row"가 아니라 upsert(update) 되는 게 정상.
-try:
-    birth_date_in = datetime.strptime(birth, "%Y-%m-%d").date()
+    # 1) Interpret input date by calendar type (SSOT 강제 라우팅)
+    # - calendar=solar: birth is solar YYYY-MM-DD
+    # - calendar=lunar: birth is lunar YYYY-MM-DD (+ is_leap_month)
+    # Always compute pillars based on confirmed solar date.
+    #
+    # SSOT RULE (최우선)
+    #   A) SSOT hit  -> 절대 외부(KASI) 호출하지 않고 그대로 사용
+    #   B) SSOT miss -> KASI 호출 후 SSOT에 반드시 upsert (idempotent)
+    #   C) DB 불가   -> KASI로 진행(비상 폴백) + 응답 meta에 상태 표기
+    #
+    # NOTE: calendar_ssot PK는 (birth, calendar, is_leap_month).
+    #       같은 키로 여러 번 조회하면 "새 row"가 아니라 upsert(update) 되는 게 정상.
+    # --------------------------------------------------
+    try:
+        birth_date_in = datetime.strptime(birth, "%Y-%m-%d").date()
 
-    cal_norm, leap_norm = _norm_calendar_key(calendar, bool(is_leap_month))
-    ssot_key = _ssot_key_str(birth_date_in, cal_norm, leap_norm)
+        cal_norm, leap_norm = _norm_calendar_key(calendar, bool(is_leap_month))
+        ssot_key = _ssot_key_str(birth_date_in, cal_norm, leap_norm)
 
-    ssot_enabled = bool(_ssot_get_conn())
-    cache_hit = False
+        ssot_enabled = bool(_ssot_get_conn())
+        cache_hit = False
 
-    # A) SSOT first (강제)
-    ssot_row = ssot_lookup(birth_date_in, cal_norm, leap_norm) if ssot_enabled else None
-
-    if ssot_row and ssot_row.get("solar_confirmed"):
-        cache_hit = True
-        solar_confirmed = ssot_row["solar_confirmed"]
-        lunar_meta = ssot_row.get("lunar_confirmed") or {}
-        _ssot_log("hit", {"key": ssot_key, "calendar": cal_norm, "is_leap_month": leap_norm})
-    else:
-        _ssot_log("miss", {"key": ssot_key, "calendar": cal_norm, "is_leap_month": leap_norm, "ssot_enabled": ssot_enabled})
-
-        # B) Cache miss -> KASI
-        if cal_norm == "lunar":
-            sol = kasi_lun_to_sol(
-                birth_date_in.year, birth_date_in.month, birth_date_in.day, leap_norm
-            )
-            solar_confirmed = date(sol["year"], sol["month"], sol["day"])
+        # A) SSOT first (강제)
+        ssot_row = ssot_lookup(birth_date_in, cal_norm, leap_norm) if ssot_enabled else None
+        if ssot_row and ssot_row.get("solar_confirmed"):
+            cache_hit = True
+            solar_confirmed = ssot_row["solar_confirmed"]
+            lunar_meta = ssot_row.get("lunar_confirmed") or {}
+            _ssot_log("hit", {"key": ssot_key, "calendar": cal_norm, "is_leap_month": leap_norm})
         else:
-            solar_confirmed = birth_date_in
+            _ssot_log("miss", {"key": ssot_key, "calendar": cal_norm, "is_leap_month": leap_norm, "ssot_enabled": ssot_enabled})
 
-        lunar_meta = kasi_sol_to_lun(
-            solar_confirmed.year, solar_confirmed.month, solar_confirmed.day
-        )
+            # B) Cache miss -> KASI
+            if cal_norm == "lunar":
+                sol = kasi_lun_to_sol(
+                    birth_date_in.year, birth_date_in.month, birth_date_in.day, leap_norm
+                )
+                solar_confirmed = date(sol["year"], sol["month"], sol["day"])
+            else:
+                solar_confirmed = birth_date_in
 
-        # C) 반드시 SSOT upsert
-        if ssot_enabled:
-            ssot_upsert(
-                birth_date_in,
-                cal_norm,
-                leap_norm,
-                solar_confirmed,
-                lunar_meta,
-                source="kasi",
-                obs={"ssot_key": ssot_key, "path": "/api/saju/calc"},
-            )
-except Exception as e:
-    raise HTTPException(status_code=502, detail=f"KASI/SSOT calendar conversion failed: {e}")
+            # lunar meta is returned for UX/printing; keep as-is (KASI authority)
+            lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
+
+            # C) 반드시 SSOT upsert (가능하면)
+            if ssot_enabled:
+                ssot_upsert(
+                    birth_date_in,
+                    cal_norm,
+                    leap_norm,
+                    solar_confirmed,
+                    lunar_meta,
+                    source="kasi",
+                    obs={"ssot_key": ssot_key, "path": "/api/saju/calc"},
+                )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"KASI/SSOT calendar conversion failed: {e}")
 
 # 2) Time handling (kept as-is)
     # --------------------------------------------------
@@ -809,10 +808,10 @@ except Exception as e:
             _branch = _p.get("branch")
             if _branch:
                 # 점신/당근 호환: 각 기둥의 '천간' 기준으로 12운성 산출
-                    # (연주는 연간, 월주는 월간, 일주는 일간, 시주는 시간)
-                    base_stem = day_stem
-                    _p["twelve_stage"] = twelve_stage(base_stem, _branch)
-                    _p["twelve_sinsal"] = twelve_sinsal(pillars.get("year",{}).get("branch",""), _branch)
+                # (연주는 연간, 월주는 월간, 일주는 일간, 시주는 시간)
+                base_stem = day_stem
+                _p["twelve_stage"] = twelve_stage(base_stem, _branch)
+                _p["twelve_sinsal"] = twelve_sinsal(pillars.get("year",{}).get("branch",""), _branch)
 
     return {
         "input": {
