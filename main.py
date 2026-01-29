@@ -380,25 +380,20 @@ TWELVE_SINSAL_OVERRIDE = {
 }
 
 def twelve_sinsal(day_branch: str, target_branch: str, month_branch: str | None = None) -> str:
-    """12신살(점신 기준)
-    우선순위:
-    1) 샘플 기반 OVERRIDE
-    2) 월지 기준 삼합국 중심
-    3) 일지 기준 삼합국 보정
+    """12신살 (점신 기준 SSOT)
+    기준 고정:
+    - 월지 기준 ONLY
+    - 일지 미사용
     """
-    if not day_branch or not target_branch:
+    if not target_branch or not month_branch:
         return ""
 
-    # 1) OVERRIDE (최우선)
-    key = (day_branch, target_branch)
+    key = (month_branch, target_branch)
     if key in TWELVE_SINSAL_OVERRIDE:
         return TWELVE_SINSAL_OVERRIDE[key].strip().strip(',')
 
-    # 2) 월지 기준
-    base_branch = month_branch or day_branch
-
     try:
-        center = TRINE_CENTER[base_branch]
+        center = TRINE_CENTER[month_branch]
         ci = BRANCH_INDEX[center]
         ti = BRANCH_INDEX[target_branch]
     except KeyError:
