@@ -1,9 +1,17 @@
 from fastapi import FastAPI, Query
 from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+# Timezone (Korea Standard Time)
+try:
+    KST = ZoneInfo("Asia/Seoul")
+except Exception:
+    # Fallback (no tz database)
+    from datetime import timezone, timedelta
+    KST = timezone(timedelta(hours=9))
+
 import json
 import os
-import xml.etree.ElementTree as ET
 
 # ==================================================
 # SSOT: Calendar Cache (Solar/Lunar)
@@ -698,8 +706,6 @@ def get_hour_pillar(day_pillar, hh, mm):
     stem_index = (STEMS.index(zi_hour_stem) + HOUR_BRANCH_SEQ.index(hour_branch)) % 10
     hour_stem = STEMS[stem_index]
     return {"stem": hour_stem, "branch": hour_branch, "ganji": hour_stem + hour_branch}
-
-app = FastAPI(title="Saju API Server")
 
 @app.get("/api/saju/calc")
 def calc_saju(
