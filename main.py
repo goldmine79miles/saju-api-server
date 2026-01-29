@@ -380,27 +380,66 @@ TWELVE_SINSAL_OVERRIDE = {
 }
 
 def twelve_sinsal(day_branch: str, target_branch: str, month_branch: str | None = None) -> str:
-    """12신살 (점신 기준 SSOT)
-    기준 고정:
-    - 월지 기준 ONLY
-    - 일지 미사용
+    """점신(삼합 기반) 12신살 매핑.
+
+    기준: '일지(日支)'가 속한 삼합(해묘미/인오술/사유축/신자진)을 결정한 뒤,
+         해당 삼합 행에서 target_branch(연/월/일/시 지지)에 대응하는 신살명을 반환한다.
+
+    month_branch는 기존 호출 호환을 위해 남겨두지만, 점신 방식에서는 사용하지 않는다.
     """
-    if not target_branch or not month_branch:
+
+    # 입력 정리
+    if not day_branch or not target_branch:
         return ""
 
-    key = (month_branch, target_branch)
-    if key in TWELVE_SINSAL_OVERRIDE:
-        return TWELVE_SINSAL_OVERRIDE[key].strip().strip(',')
+    # 12신살 컬럼 순서(표 머리)
+    TWELVE_SINSAL_NAMES = [
+        "겁살", "재살", "천살", "지살", "연살", "월살",
+        "망신살", "장성살", "반안살", "역마살", "육해살", "화개살",
+    ]
 
+    # 삼합(4행) 기준 표: 각 행은 위 컬럼 순서대로 '해당 신살이 걸리는 지지'를 담는다.
+    ROWS = {
+        # 해·묘·미
+        "해묘미": ["申", "酉", "戌", "亥", "子", "丑", "寅", "卯", "辰", "巳", "午", "未"],
+        # 인·오·술
+        "인오술": ["亥", "子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌"],
+        # 사·유·축
+        "사유축": ["寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥", "子", "丑"],
+        # 신·자·진
+        "신자진": ["巳", "午", "未", "申", "酉", "戌", "亥", "子", "丑", "寅", "卯", "辰"],
+    }
+
+    # 일지가 속한 삼합 결정
+    if day_branch in ("亥", "卯", "未"):
+        group = "해묘미"
+    elif day_branch in ("寅", "午", "戌"):
+        group = "인오술"
+    elif day_branch in ("巳", "酉", "丑"):
+        group = "사유축"
+    elif day_branch in ("申", "子", "辰"):
+        group = "신자진"
+    else:
+        # 지지 12자 외 입력 방어
+        return ""
+
+    row = ROWS[group]
+
+    # (선택) 개별 예외 오버라이드: 필요하면 여기만 추가해서 점신과 1:1 맞춘다.
+    # key: (day_branch, target_branch)
+    OVERRIDE: dict[tuple[str, str], str] = {
+        # 예) ("午","子"): "연살",
+    }
+    ov = OVERRIDE.get((day_branch, target_branch))
+    if ov:
+        return ov
+
+    # 행에서 target_branch가 등장하는 컬럼을 찾아 신살명 반환
     try:
-        center = TRINE_CENTER[month_branch]
-        ci = BRANCH_INDEX[center]
-        ti = BRANCH_INDEX[target_branch]
-    except KeyError:
+        idx = row.index(target_branch)
+        return TWELVE_SINSAL_NAMES[idx]
+    except ValueError:
         return ""
-
-    idx = (ti - ci) % 12
-    return TWELVE_SINSAL_ORDER[idx]
 
 # ==================================================
 # TWELVE STAGES (12운성) — SSOT
