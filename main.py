@@ -1,8 +1,13 @@
+from fastapi import FastAPI, Query
+from datetime import datetime, date, timedelta, timezone
+from zoneinfo import ZoneInfo
+import json
+import os
 
 # ==================================================
-# SSOT: Calendar Cache (Solar/Lunar) — guarded, non-breaking
-# - Uses calendar_ssot table if DB driver is available
-# - Falls back to KASI if anything is missing
+# SSOT: Calendar Cache (Solar/Lunar)
+# - Reads/writes `public.calendar_ssot` via DATABASE_URL (Postgres)
+# - If DB driver/env missing, it silently falls back to KASI
 # ==================================================
 try:
     import psycopg2
@@ -21,7 +26,8 @@ def _ssot_get_conn():
     except Exception:
         return None
 
-def ssot_lookup(birth: date, calendar: str, is_leap_month: bool):
+def ssot_lookup(birth_dt: date, calendar: str, is_leap_month: bool):
+    """Return cached row dict or None."""
     conn = _ssot_get_conn()
     if not conn:
         return None
@@ -29,21 +35,24 @@ def ssot_lookup(birth: date, calendar: str, is_leap_month: bool):
         with conn, conn.cursor() as cur:
             cur.execute(
                 """
-                select *
+                select solar_confirmed, lunar_confirmed, meta_json
                 from public.calendar_ssot
                 where birth = %s and calendar = %s and is_leap_month = %s
                 limit 1
                 """,
-                (birth, calendar, bool(is_leap_month)),
+                (birth_dt, (calendar or "").lower(), bool(is_leap_month)),
             )
             return cur.fetchone()
     except Exception:
         return None
     finally:
-        try: conn.close()
-        except Exception: pass
+        try:
+            conn.close()
+        except Exception:
+            pass
 
-def ssot_upsert(birth: date, calendar: str, is_leap_month: bool, solar_confirmed: date, lunar_meta: dict):
+def ssot_upsert(birth_dt: date, calendar: str, is_leap_month: bool, solar_confirmed_dt: date, lunar_meta: dict):
+    """Upsert cache row. Non-fatal on any error."""
     conn = _ssot_get_conn()
     if not conn:
         return
@@ -52,8 +61,9 @@ def ssot_upsert(birth: date, calendar: str, is_leap_month: bool, solar_confirmed
             cur.execute(
                 """
                 insert into public.calendar_ssot
-                (birth, calendar, is_leap_month, solar_confirmed, lunar_confirmed, meta_json)
-                values (%s,%s,%s,%s,%s,%s)
+                  (birth, calendar, is_leap_month, solar_confirmed, lunar_confirmed, meta_json)
+                values
+                  (%s, %s, %s, %s, %s, %s)
                 on conflict (birth, calendar, is_leap_month)
                 do update set
                   solar_confirmed = excluded.solar_confirmed,
@@ -61,22 +71,27 @@ def ssot_upsert(birth: date, calendar: str, is_leap_month: bool, solar_confirmed
                   meta_json = excluded.meta_json
                 """,
                 (
-                    birth, calendar, bool(is_leap_month),
-                    solar_confirmed,
-                    json.dumps(lunar_meta),
-                    json.dumps({"source":"kasi","cached_at": datetime.now(tz=UTC).isoformat()}),
+                    birth_dt,
+                    (calendar or "").lower(),
+                    bool(is_leap_month),
+                    solar_confirmed_dt,
+                    json.dumps(lunar_meta, ensure_ascii=False),
+                    json.dumps(
+                        {
+                            "source": "kasi",
+                            "cached_at": (datetime.now(tz=UTC).isoformat() if "UTC" in globals() else datetime.utcnow().isoformat()),
+                        },
+                        ensure_ascii=False,
+                    ),
                 ),
             )
     except Exception:
         pass
     finally:
-        try: conn.close()
-        except Exception: pass
-from fastapi import FastAPI, Query
-from datetime import datetime, date, timedelta, timezone
-from zoneinfo import ZoneInfo
-import json
-import os
+        try:
+            conn.close()
+        except Exception:
+            pass
 from pathlib import Path
 import requests
 import xml.etree.ElementTree as ET
@@ -683,23 +698,33 @@ def calc_saju(
     # - calendar=solar: birth is solar YYYY-MM-DD
     # - calendar=lunar: birth is lunar YYYY-MM-DD (+ is_leap_month)
     # Always compute pillars based on confirmed solar date (SSOT for calculation).
+    # SSOT behavior:
+    #   1) Try `calendar_ssot` cache first (birth+calendar+is_leap_month)
+    #   2) Cache miss -> call KASI -> best-effort upsert
     # --------------------------------------------------
     try:
         birth_date_in = datetime.strptime(birth, "%Y-%m-%d").date()
 
-        if (calendar or "").lower() == "lunar":
-            sol = kasi_lun_to_sol(
-                birth_date_in.year, birth_date_in.month, birth_date_in.day, bool(is_leap_month)
-            )
-            solar_confirmed = date(sol["year"], sol["month"], sol["day"])
+        cached = ssot_lookup(birth_date_in, calendar, bool(is_leap_month))
+        if cached and cached.get("solar_confirmed"):
+            solar_confirmed = cached["solar_confirmed"]
+            lunar_meta = cached.get("lunar_confirmed") or {}
         else:
-            solar_confirmed = birth_date_in
+            if (calendar or "").lower() == "lunar":
+                sol = kasi_lun_to_sol(
+                    birth_date_in.year, birth_date_in.month, birth_date_in.day, bool(is_leap_month)
+                )
+                solar_confirmed = date(sol["year"], sol["month"], sol["day"])
+            else:
+                solar_confirmed = birth_date_in
 
-        # For UI/infographic: always provide normalized lunar derived from confirmed solar
-        lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
+            # For UI/infographic: always provide normalized lunar derived from confirmed solar
+            lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
+
+            # Best-effort cache write (non-fatal)
+            ssot_upsert(birth_date_in, calendar, bool(is_leap_month), solar_confirmed, lunar_meta)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"KASI calendar conversion failed: {e}")
-
+        raise HTTPException(status_code=502, detail=f"KASI/SSOT calendar conversion failed: {e}")
     # --------------------------------------------------
     # 2) Time handling (kept as-is)
     # --------------------------------------------------
