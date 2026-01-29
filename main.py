@@ -144,7 +144,7 @@ def _ssot_log(event: str, payload: dict):
     except Exception:
         print("[SSOT]", event, payload, flush=True)
 
-def _kasi_parse_item(resp: requests.Response) -> dict:
+def _kasi_parse_item(resp: "requests.Response") -> dict:
     """Parse KASI response item safely (JSON preferred, XML fallback)."""
     # JSON (when _type=json works)
     try:
