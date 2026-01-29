@@ -7,7 +7,8 @@ import os
 # ==================================================
 # SSOT: Calendar Cache (Solar/Lunar)
 # - Reads/writes `public.calendar_ssot` via DATABASE_URL (Postgres)
-# - If DB driver/env missing, it silently falls back to KASI
+# - Requires `psycopg2-binary` in requirements.txt
+# - If DB driver/env missing, it silently falls back to KASI (non-breaking)
 # ==================================================
 try:
     import psycopg2
@@ -694,10 +695,11 @@ def calc_saju(
     from fastapi import HTTPException
 
     # --------------------------------------------------
+    # --------------------------------------------------
     # 1) Interpret input date by calendar type
     # - calendar=solar: birth is solar YYYY-MM-DD
     # - calendar=lunar: birth is lunar YYYY-MM-DD (+ is_leap_month)
-    # Always compute pillars based on confirmed solar date (SSOT for calculation).
+    # Always compute pillars based on confirmed solar date.
     # SSOT behavior:
     #   1) Try `calendar_ssot` cache first (birth+calendar+is_leap_month)
     #   2) Cache miss -> call KASI -> best-effort upsert
@@ -718,10 +720,7 @@ def calc_saju(
             else:
                 solar_confirmed = birth_date_in
 
-            # For UI/infographic: always provide normalized lunar derived from confirmed solar
             lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
-
-            # Best-effort cache write (non-fatal)
             ssot_upsert(birth_date_in, calendar, bool(is_leap_month), solar_confirmed, lunar_meta)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"KASI/SSOT calendar conversion failed: {e}")
