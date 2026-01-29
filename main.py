@@ -18,6 +18,7 @@ except Exception:
     _SSOT_DB_OK = False
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+print("[SSOT_BOOT]", "_SSOT_DB_OK=", _SSOT_DB_OK, "DATABASE_URL_SET=", bool(DATABASE_URL))
 
 def _ssot_get_conn():
     if not (_SSOT_DB_OK and DATABASE_URL):
