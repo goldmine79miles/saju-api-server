@@ -379,31 +379,33 @@ TWELVE_SINSAL_OVERRIDE = {
     ("午", "亥"): "지살",
 }
 
-def twelve_sinsal(day_branch: str, target_branch: str) -> str:
-    """12신살(점신 스타일) 계산.
-    1) OVERRIDE 우선
-    2) 기본 규칙: '일지의 삼합국 중심지'를 기준으로 12지지 순환 거리로 라벨 매핑
+def twelve_sinsal(day_branch: str, target_branch: str, month_branch: str | None = None) -> str:
+    """12신살(점신 기준)
+    우선순위:
+    1) 샘플 기반 OVERRIDE
+    2) 월지 기준 삼합국 중심
+    3) 일지 기준 삼합국 보정
     """
     if not day_branch or not target_branch:
         return ""
+
+    # 1) OVERRIDE (최우선)
     key = (day_branch, target_branch)
     if key in TWELVE_SINSAL_OVERRIDE:
         return TWELVE_SINSAL_OVERRIDE[key].strip().strip(',')
 
+    # 2) 월지 기준
+    base_branch = month_branch or day_branch
+
     try:
-        center = TRINE_CENTER[day_branch]
+        center = TRINE_CENTER[base_branch]
         ci = BRANCH_INDEX[center]
         ti = BRANCH_INDEX[target_branch]
     except KeyError:
         return ""
 
     idx = (ti - ci) % 12
-    # idx=0(중심지)일 때 "지살"로 시작하는 순환
-    # (유파 차이가 있으면 OVERRIDE로 잡는다)
-    try:
-        return TWELVE_SINSAL_ORDER[idx].strip().strip(',')
-    except Exception:
-        return ""
+    return TWELVE_SINSAL_ORDER[idx]
 
 # ==================================================
 # TWELVE STAGES (12운성) — SSOT
@@ -843,7 +845,7 @@ def calc_saju(
         if _branch:
             # 12운성/12신살
             _p["twelve_stage"] = twelve_stage(day_stem, _branch)
-            _p["twelve_sinsal"] = twelve_sinsal(day_branch, _branch)
+            _p["twelve_sinsal"] = twelve_sinsal(day_branch, _branch, month_pillar.get("branch") if month_pillar else None)
 
     return {
         "input": {
