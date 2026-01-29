@@ -239,22 +239,6 @@ TWELVE_SINSAL_OVERRIDE = {
     ("午", "亥"): "지살",
 }
 
-    try:
-        center = TRINE_CENTER[day_branch]
-        ci = BRANCH_INDEX[center]
-        ti = BRANCH_INDEX[target_branch]
-    except KeyError:
-        return ""
-
-    idx = (ti - ci) % 12
-    # idx=0(중심지)일 때 "지살"로 시작하는 순환
-    # (유파 차이가 있으면 OVERRIDE로 잡는다)
-    try:
-        return TWELVE_SINSAL_ORDER[idx].strip().strip(',')
-    except Exception:
-        return ""
-
-
 # ==================================================
 # TWELVE SINSAL (12신살) — SSOT (YEAR BRANCH BASED)
 # 기준: 년지 (국내 표준 / 점신 방식)
@@ -686,7 +670,7 @@ def calc_saju(
                     # (연주는 연간, 월주는 월간, 일주는 일간, 시주는 시간)
                     base_stem = day_stem
                     _p["twelve_stage"] = twelve_stage(base_stem, _branch)
-                    _p["twelve_sinsal"] = twelve_sinsal(pillars.get("day",{}).get("branch",""), _branch)
+                    _p["twelve_sinsal"] = twelve_sinsal(pillars.get("year",{}).get("branch",""), _branch)
 
     return {
         "input": {
