@@ -584,6 +584,16 @@ HIDDEN_STEMS_DISPLAY_OVERRIDE = {
 }
 
 
+
+# Display-only 1->2 normalization for hidden stems (UI only; '점신' style)
+# - Used when traditional hidden stems length is exactly 1, but reference UI shows 2 chars.
+# - Traditional calculation remains in HIDDEN_STEMS_BY_BRANCH / hidden_stems.
+HIDDEN_STEMS_DISPLAY_2CHAR = {
+    "子": ["壬", "癸"],  # 임계
+    "卯": ["甲", "乙"],  # 갑을
+    "酉": ["庚", "辛"],  # 경신
+}
+
 # Main hidden stem (정기) for branch ten-god
 MAIN_HIDDEN_STEM_BY_BRANCH = {
     "子": "癸", "丑": "己", "寅": "甲", "卯": "乙",
@@ -618,6 +628,14 @@ def enrich_pillar(p: dict, day_stem: str):
             display = list(HIDDEN_STEMS_DISPLAY_OVERRIDE[branch])
         else:
             display = list(hidden)
+
+            # 1 -> 2 (display-only) normalization to match reference UI (e.g., 子: 壬癸, 卯: 甲乙, 酉: 庚辛)
+            if len(display) == 1:
+                disp2 = HIDDEN_STEMS_DISPLAY_2CHAR.get(branch)
+                if disp2:
+                    display = list(disp2)
+
+            # 2 -> 3 (display-only) padding when needed
             if len(display) == 2:
                 pad = HIDDEN_STEMS_DISPLAY_PAD.get(branch)
                 if pad:
