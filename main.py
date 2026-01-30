@@ -2,6 +2,9 @@ from fastapi import FastAPI, Query
 from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import requests
+import xml.etree.ElementTree as ET
+
 # Timezone (Korea Standard Time)
 try:
     KST = ZoneInfo("Asia/Seoul")
@@ -706,6 +709,10 @@ def get_hour_pillar(day_pillar, hh, mm):
     stem_index = (STEMS.index(zi_hour_stem) + HOUR_BRANCH_SEQ.index(hour_branch)) % 10
     hour_stem = STEMS[stem_index]
     return {"stem": hour_stem, "branch": hour_branch, "ganji": hour_stem + hour_branch}
+
+
+# FastAPI application instance (must exist before route decorators)
+app = FastAPI()
 
 @app.get("/api/saju/calc")
 def calc_saju(
