@@ -15,6 +15,39 @@ except Exception:
 
 import json
 import os
+from pathlib import Path
+import traceback
+
+# =========================
+# Runtime constants (must exist; avoid NameError -> 500)
+# =========================
+UTC = timezone.utc
+
+# Some deployments apply a fixed offset to convert "Seoul time input" to calculation time.
+# Default to 0 to preserve legacy behavior if env not set.
+try:
+    SEOUL_FIXED_OFFSET_MINUTES = int(os.getenv("SEOUL_FIXED_OFFSET_MINUTES", "0") or "0")
+except Exception:
+    SEOUL_FIXED_OFFSET_MINUTES = 0
+
+# Jieqi (24절기) table path (expected to exist in repo). If env provided, it wins.
+JIEQI_TABLE_PATH = Path(
+    os.getenv("JIEQI_TABLE_PATH", str(Path(__file__).parent / "data" / "jieqi_table.json"))
+)
+
+# KASI (Korean Astronomy and Space Science Institute) OpenAPI settings
+KASI_BASE = os.getenv(
+    "KASI_BASE",
+    "https://apis.data.go.kr/B090041/openapi/service/LrsrCldInfoService",
+)
+KASI_SERVICE_KEY = (
+    os.getenv("KASI_SERVICE_KEY")
+    or os.getenv("KASI_SERVICEKEY")
+    or os.getenv("SERVICE_KEY")
+    or os.getenv("KASI_KEY")
+    or ""
+)
+
 
 # ==================================================
 # SSOT: Calendar Cache (Solar/Lunar)
@@ -723,151 +756,158 @@ def calc_saju(
     is_leap_month: bool = Query(False),
 ):
     from fastapi import HTTPException
-
-    # --------------------------------------------------
-    # --------------------------------------------------
-    # 1) Interpret input date by calendar type (SSOT 강제 라우팅)
-    # - calendar=solar: birth is solar YYYY-MM-DD
-    # - calendar=lunar: birth is lunar YYYY-MM-DD (+ is_leap_month)
-    # Always compute pillars based on confirmed solar date.
-    #
-    # SSOT RULE (최우선)
-    #   A) SSOT hit  -> 절대 외부(KASI) 호출하지 않고 그대로 사용
-    #   B) SSOT miss -> KASI 호출 후 SSOT에 반드시 upsert (idempotent)
-    #   C) DB 불가   -> KASI로 진행(비상 폴백) + 응답 meta에 상태 표기
-    #
-    # NOTE: calendar_ssot PK는 (birth, calendar, is_leap_month).
-    #       같은 키로 여러 번 조회하면 "새 row"가 아니라 upsert(update) 되는 게 정상.
-    # --------------------------------------------------
     try:
-        birth_date_in = datetime.strptime(birth, "%Y-%m-%d").date()
 
-        cal_norm, leap_norm = _norm_calendar_key(calendar, bool(is_leap_month))
-        ssot_key = _ssot_key_str(birth_date_in, cal_norm, leap_norm)
+        # --------------------------------------------------
+        # --------------------------------------------------
+        # 1) Interpret input date by calendar type (SSOT 강제 라우팅)
+        # - calendar=solar: birth is solar YYYY-MM-DD
+        # - calendar=lunar: birth is lunar YYYY-MM-DD (+ is_leap_month)
+        # Always compute pillars based on confirmed solar date.
+        #
+        # SSOT RULE (최우선)
+        #   A) SSOT hit  -> 절대 외부(KASI) 호출하지 않고 그대로 사용
+        #   B) SSOT miss -> KASI 호출 후 SSOT에 반드시 upsert (idempotent)
+        #   C) DB 불가   -> KASI로 진행(비상 폴백) + 응답 meta에 상태 표기
+        #
+        # NOTE: calendar_ssot PK는 (birth, calendar, is_leap_month).
+        #       같은 키로 여러 번 조회하면 "새 row"가 아니라 upsert(update) 되는 게 정상.
+        # --------------------------------------------------
+        try:
+            birth_date_in = datetime.strptime(birth, "%Y-%m-%d").date()
 
-        ssot_enabled = bool(_ssot_get_conn())
-        cache_hit = False
+            cal_norm, leap_norm = _norm_calendar_key(calendar, bool(is_leap_month))
+            ssot_key = _ssot_key_str(birth_date_in, cal_norm, leap_norm)
 
-        # A) SSOT first (강제)
-        ssot_row = ssot_lookup(birth_date_in, cal_norm, leap_norm) if ssot_enabled else None
-        if ssot_row and ssot_row.get("solar_confirmed"):
-            cache_hit = True
-            solar_confirmed = ssot_row["solar_confirmed"]
-            lunar_meta = ssot_row.get("lunar_confirmed") or {}
-            _ssot_log("hit", {"key": ssot_key, "calendar": cal_norm, "is_leap_month": leap_norm})
-        else:
-            _ssot_log("miss", {"key": ssot_key, "calendar": cal_norm, "is_leap_month": leap_norm, "ssot_enabled": ssot_enabled})
+            ssot_enabled = bool(_SSOT_DB_OK and DATABASE_URL)
+            cache_hit = False
 
-            # B) Cache miss -> KASI
-            if cal_norm == "lunar":
-                sol = kasi_lun_to_sol(
-                    birth_date_in.year, birth_date_in.month, birth_date_in.day, leap_norm
-                )
-                solar_confirmed = date(sol["year"], sol["month"], sol["day"])
+            # A) SSOT first (강제)
+            ssot_row = ssot_lookup(birth_date_in, cal_norm, leap_norm) if ssot_enabled else None
+            if ssot_row and ssot_row.get("solar_confirmed"):
+                cache_hit = True
+                solar_confirmed = ssot_row["solar_confirmed"]
+                lunar_meta = ssot_row.get("lunar_confirmed") or {}
+                _ssot_log("hit", {"key": ssot_key, "calendar": cal_norm, "is_leap_month": leap_norm})
             else:
-                solar_confirmed = birth_date_in
+                _ssot_log("miss", {"key": ssot_key, "calendar": cal_norm, "is_leap_month": leap_norm, "ssot_enabled": ssot_enabled})
 
-            # lunar meta is returned for UX/printing; keep as-is (KASI authority)
-            lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
+                # B) Cache miss -> KASI
+                if cal_norm == "lunar":
+                    sol = kasi_lun_to_sol(
+                        birth_date_in.year, birth_date_in.month, birth_date_in.day, leap_norm
+                    )
+                    solar_confirmed = date(sol["year"], sol["month"], sol["day"])
+                else:
+                    solar_confirmed = birth_date_in
 
-            # C) 반드시 SSOT upsert (가능하면)
-            if ssot_enabled:
-                ssot_upsert(
-                    birth_date_in,
-                    cal_norm,
-                    leap_norm,
-                    solar_confirmed,
-                    lunar_meta,
-                    source="kasi",
-                    obs={"ssot_key": ssot_key, "path": "/api/saju/calc"},
-                )
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"KASI/SSOT calendar conversion failed: {e}")
+                # lunar meta is returned for UX/printing; keep as-is (KASI authority)
+                lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
 
-# 2) Time handling (kept as-is)
-    # --------------------------------------------------
-    bt = (birth_time or "").strip().lower()
-    if bt and bt not in ("unknown", "null", "none"):
-        hh, mm = map(int, bt.split(":"))
-        has_time = True
-    else:
-        hh, mm = 0, 0
-        has_time = False
+                # C) 반드시 SSOT upsert (가능하면)
+                if ssot_enabled:
+                    ssot_upsert(
+                        birth_date_in,
+                        cal_norm,
+                        leap_norm,
+                        solar_confirmed,
+                        lunar_meta,
+                        source="kasi",
+                        obs={"ssot_key": ssot_key, "path": "/api/saju/calc"},
+                    )
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"KASI/SSOT calendar conversion failed: {e}")
 
-    input_dt = datetime(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day, hh, mm, tzinfo=KST)
-    calc_dt = input_dt - timedelta(minutes=SEOUL_FIXED_OFFSET_MINUTES) if has_time else input_dt
+    # 2) Time handling (kept as-is)
+        # --------------------------------------------------
+        bt = (birth_time or "").strip().lower()
+        if bt and bt not in ("unknown", "null", "none"):
+            hh, mm = map(int, bt.split(":"))
+            has_time = True
+        else:
+            hh, mm = 0, 0
+            has_time = False
 
-    # --------------------------------------------------
-    # 3) Pillar calculation (solar-based)
-    # --------------------------------------------------
-    jieqi_this = get_jieqi_with_fallback(str(input_dt.year))
-    ipchun_dt = find_ipchun_dt(jieqi_this)
-    saju_year = input_dt.year if input_dt >= ipchun_dt else input_dt.year - 1
+        input_dt = datetime(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day, hh, mm, tzinfo=KST)
+        calc_dt = input_dt - timedelta(minutes=SEOUL_FIXED_OFFSET_MINUTES) if has_time else input_dt
 
-    year_pillar = get_year_pillar(saju_year)
-    day_pillar = get_day_pillar(input_dt.date())
+        # --------------------------------------------------
+        # 3) Pillar calculation (solar-based)
+        # --------------------------------------------------
+        jieqi_this = get_jieqi_with_fallback(str(input_dt.year))
+        ipchun_dt = find_ipchun_dt(jieqi_this)
+        saju_year = input_dt.year if input_dt >= ipchun_dt else input_dt.year - 1
 
-    jieqi_prev = get_jieqi_with_fallback(str(input_dt.year - 1))
-    month_pillar = get_month_pillar(input_dt, year_pillar, jieqi_this, jieqi_prev)
-    hour_pillar = get_hour_pillar(day_pillar, calc_dt.hour, calc_dt.minute) if has_time else None
+        year_pillar = get_year_pillar(saju_year)
+        day_pillar = get_day_pillar(input_dt.date())
 
-    # --------------------------------------------------
-    # 3.5) Enrich pillars for infographic (ten gods + hidden stems)
-    # --------------------------------------------------
-    pillars = {"year": year_pillar, "month": month_pillar, "day": day_pillar, "hour": hour_pillar}
-    day_stem = (day_pillar or {}).get("stem", "")
-    for _k in ("year", "month", "day", "hour"):
-        _p = pillars.get(_k)
-        if _p:
-            enrich_pillar(_p, day_stem)
-            # 12운성 (hour가 없으면 자동 스킵)
-            _branch = _p.get("branch")
-            if _branch:
-                # 점신/당근 호환: 각 기둥의 '천간' 기준으로 12운성 산출
-                # (연주는 연간, 월주는 월간, 일주는 일간, 시주는 시간)
-                base_stem = day_stem
-                _p["twelve_stage"] = twelve_stage(base_stem, _branch)
-                _p["twelve_sinsal"] = twelve_sinsal(pillars.get("year",{}).get("branch",""), _branch)
+        jieqi_prev = get_jieqi_with_fallback(str(input_dt.year - 1))
+        month_pillar = get_month_pillar(input_dt, year_pillar, jieqi_this, jieqi_prev)
+        hour_pillar = get_hour_pillar(day_pillar, calc_dt.hour, calc_dt.minute) if has_time else None
 
-    return {
-        "input": {
-            "birth": birth,
-            "calendar": calendar,
-            "birth_time": birth_time,
-            "gender": gender,
-            "is_leap_month": is_leap_month,
-        },
-        "meta": {
+        # --------------------------------------------------
+        # 3.5) Enrich pillars for infographic (ten gods + hidden stems)
+        # --------------------------------------------------
+        pillars = {"year": year_pillar, "month": month_pillar, "day": day_pillar, "hour": hour_pillar}
+        day_stem = (day_pillar or {}).get("stem", "")
+        for _k in ("year", "month", "day", "hour"):
+            _p = pillars.get(_k)
+            if _p:
+                enrich_pillar(_p, day_stem)
+                # 12운성 (hour가 없으면 자동 스킵)
+                _branch = _p.get("branch")
+                if _branch:
+                    # 점신/당근 호환: 각 기둥의 '천간' 기준으로 12운성 산출
+                    # (연주는 연간, 월주는 월간, 일주는 일간, 시주는 시간)
+                    base_stem = day_stem
+                    _p["twelve_stage"] = twelve_stage(base_stem, _branch)
+                    _p["twelve_sinsal"] = twelve_sinsal(pillars.get("year",{}).get("branch",""), _branch)
 
-"ssot": {
-    "enabled": ssot_enabled,
-    "key": ssot_key,
-    "cache_hit": cache_hit,
-    "calendar": cal_norm,
-    "is_leap_month": leap_norm,
-},
-            "solar_confirmed": {
-                "year": input_dt.year,
-                "month": input_dt.month,
-                "day": input_dt.day,
-                "label_kr": f"양력 {input_dt.year}년 {input_dt.month}월 {input_dt.day}일",
+        return {
+            "input": {
+                "birth": birth,
+                "calendar": calendar,
+                "birth_time": birth_time,
+                "gender": gender,
+                "is_leap_month": is_leap_month,
             },
-            "lunar": lunar_meta,
-        },
-        "pillars": pillars,
-        "ilju_animal": get_ilju_animal(day_pillar.get("stem", ""), day_pillar.get("branch", "")),
-        "ilju_emoji": get_ilju_emoji(day_pillar.get("branch", "")),
-        "debug": {
-            "timezone": "KST",
-            "fixed_offset_minutes": SEOUL_FIXED_OFFSET_MINUTES if has_time else 0,
-            "input_dt": input_dt.isoformat(),
-            "calc_dt": calc_dt.isoformat(),
-            "saju_year": saju_year,
-        },
-    }
+            "meta": {
+
+    "ssot": {
+        "enabled": ssot_enabled,
+        "key": ssot_key,
+        "cache_hit": cache_hit,
+        "calendar": cal_norm,
+        "is_leap_month": leap_norm,
+    },
+                "solar_confirmed": {
+                    "year": input_dt.year,
+                    "month": input_dt.month,
+                    "day": input_dt.day,
+                    "label_kr": f"양력 {input_dt.year}년 {input_dt.month}월 {input_dt.day}일",
+                },
+                "lunar": lunar_meta,
+            },
+            "pillars": pillars,
+            "ilju_animal": get_ilju_animal(day_pillar.get("stem", ""), day_pillar.get("branch", "")),
+            "ilju_emoji": get_ilju_emoji(day_pillar.get("branch", "")),
+            "debug": {
+                "timezone": "KST",
+                "fixed_offset_minutes": SEOUL_FIXED_OFFSET_MINUTES if has_time else 0,
+                "input_dt": input_dt.isoformat(),
+                "calc_dt": calc_dt.isoformat(),
+                "saju_year": saju_year,
+            },
+        }
 
 
 
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("[FATAL] calc_saju exception", flush=True)
+        print(traceback.format_exc(), flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 # =========================
 # API - PDF Generation
 # =========================
