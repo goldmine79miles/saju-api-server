@@ -272,10 +272,16 @@ def kasi_lun_to_sol(lun_year: int, lun_month: int, lun_day: int, is_leap_month: 
     return {"year": sol_year, "month": sol_month, "day": sol_day}
 
 def load_jieqi_table():
+    """Load 24절기 table. If missing, return empty dict (do NOT crash the API)."""
     if not JIEQI_TABLE_PATH.exists():
-        raise FileNotFoundError(f"[JIEQI] missing file: {JIEQI_TABLE_PATH}")
-    with JIEQI_TABLE_PATH.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        print(f"[JIEQI] missing file: {JIEQI_TABLE_PATH} (fallback: empty)")
+        return {}
+    try:
+        with JIEQI_TABLE_PATH.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[JIEQI] failed to load table: {e} (fallback: empty)")
+        return {}
 
 def _parse_dt_any(value, assume_tz):
     if value is None:
