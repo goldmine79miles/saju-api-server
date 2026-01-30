@@ -1,39 +1,6 @@
 from fastapi import FastAPI, Query
-
-# =========================
-# LOG ONLY ENHANCEMENT (OBSERVABILITY)
-# =========================
-import time as _log_time
-import uuid as _log_uuid
-
-def _log_req_start(_path: str, _params: dict):
-    _rid = str(_log_uuid.uuid4())[:8]
-    _start = _log_time.time()
-    print(f"[REQ_START] id={_rid} path={_path} params={_params}", flush=True)
-    return _rid, _start
-
-def _log_req_step(_rid: str, _step: str, _extra: dict | None = None):
-    if _extra is None:
-        _extra = {}
-    print(f"[REQ_STEP] id={_rid} step={_step} extra={_extra}", flush=True)
-
-def _log_req_end(_rid: str, _start: float, _status: int = 200):
-    _dur = int((_log_time.time() - _start) * 1000)
-    print(f"[REQ_END] id={_rid} status={_status} duration_ms={_dur}", flush=True)
 from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
-
-import requests
-import xml.etree.ElementTree as ET
-
-# Timezone (Korea Standard Time)
-try:
-    KST = ZoneInfo("Asia/Seoul")
-except Exception:
-    # Fallback (no tz database)
-    from datetime import timezone, timedelta
-    KST = timezone(timedelta(hours=9))
-
 import json
 import os
 
@@ -86,43 +53,11 @@ def ssot_lookup(birth_dt: date, calendar: str, is_leap_month: bool):
         except Exception:
             pass
 
-def ssot_upsert(
-    birth_dt: date,
-    calendar: str,
-    is_leap_month: bool,
-    solar_confirmed_dt: date,
-    lunar_meta: dict,
-    *,
-    source: str = "kasi",
-    obs: dict | None = None,
-):
-    """Upsert SSOT cache row (non-fatal on any error).
-
-    calendar_ssot PK: (birth, calendar, is_leap_month)
-    - Same key re-queries will UPDATE (not create a new row) -> 정상 동작
-    """
+def ssot_upsert(birth_dt: date, calendar: str, is_leap_month: bool, solar_confirmed_dt: date, lunar_meta: dict):
+    """Upsert cache row. Non-fatal on any error."""
     conn = _ssot_get_conn()
     if not conn:
         return
-
-    now_iso = None
-    try:
-        now_iso = datetime.now(timezone.utc).isoformat()
-    except Exception:
-        try:
-            now_iso = datetime.utcnow().isoformat()
-        except Exception:
-            now_iso = None
-
-    meta = {
-        "source": source,
-        "cached_at": now_iso,
-        "calendar": (calendar or "").lower(),
-        "is_leap_month": bool(is_leap_month),
-    }
-    if obs:
-        meta["obs"] = obs
-
     try:
         with conn, conn.cursor() as cur:
             cur.execute(
@@ -130,7 +65,7 @@ def ssot_upsert(
                 insert into public.calendar_ssot
                   (birth, calendar, is_leap_month, solar_confirmed, lunar_confirmed, meta_json)
                 values
-                  (%s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                  (%s, %s, %s, %s, %s, %s)
                 on conflict (birth, calendar, is_leap_month)
                 do update set
                   solar_confirmed = excluded.solar_confirmed,
@@ -142,8 +77,14 @@ def ssot_upsert(
                     (calendar or "").lower(),
                     bool(is_leap_month),
                     solar_confirmed_dt,
-                    json.dumps(lunar_meta or {}, ensure_ascii=False),
-                    json.dumps(meta, ensure_ascii=False),
+                    json.dumps(lunar_meta, ensure_ascii=False),
+                    json.dumps(
+                        {
+                            "source": "kasi",
+                            "cached_at": (datetime.now(tz=UTC).isoformat() if "UTC" in globals() else datetime.utcnow().isoformat()),
+                        },
+                        ensure_ascii=False,
+                    ),
                 ),
             )
     except Exception:
@@ -153,31 +94,69 @@ def ssot_upsert(
             conn.close()
         except Exception:
             pass
+from pathlib import Path
+import requests
+import xml.etree.ElementTree as ET
+
+print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
+
+app = FastAPI(
+    title="Saju API Server",
+    version="1.9.0"
+)
+
+# ==================================================
+# PATHS
+# ==================================================
+THIS_DIR = Path(__file__).resolve().parent
+
+PROJECT_ROOT = THIS_DIR
+if not (PROJECT_ROOT / "data").exists() and (PROJECT_ROOT.parent / "data").exists():
+    PROJECT_ROOT = PROJECT_ROOT.parent
+
+DATA_DIR = PROJECT_ROOT / "data"
+# Jieqi (24절기) table path resolver
+# - Prefer env:JIEQI_TABLE_PATH if set
+# - Otherwise try common repo paths (data/ first, then project root)
+def _resolve_jieqi_path() -> Path | None:
+    env = (os.getenv("JIEQI_TABLE_PATH") or "").strip()
+    if env:
+        p = Path(env)
+        if p.exists():
+            return p
+
+    candidates = [
+        DATA_DIR / "jieqi_table.json",
+        DATA_DIR / "jieqi_1900_2052.json",
+        PROJECT_ROOT / "jieqi_1900_2052.json",
+        PROJECT_ROOT / "data" / "jieqi_1900_2052.json",
+    ]
+    for p in candidates:
+        try:
+            if p.exists():
+                return p
+        except Exception:
+            continue
+    return None
+
+JIEQI_TABLE_PATH = _resolve_jieqi_path() or (DATA_DIR / "jieqi_1900_2052.json")
 
 
-def _norm_calendar_key(calendar: str, is_leap_month: bool):
-    """Normalize SSOT key inputs to avoid accidents.
+KST = ZoneInfo("Asia/Seoul")
+UTC = timezone.utc
 
-    - calendar ∈ {'solar','lunar'} only
-    - if calendar != 'lunar' => solar, is_leap_month forced False
-    """
-    cal = (calendar or "solar").strip().lower()
-    if cal != "lunar":
-        return "solar", False
-    return "lunar", bool(is_leap_month)
+SEOUL_FIXED_OFFSET_MINUTES = 32
 
 
-def _ssot_key_str(birth_dt: date, calendar: str, is_leap_month: bool) -> str:
-    return f"{birth_dt.isoformat()}|{calendar}|{int(bool(is_leap_month))}"
+# ==================================================
+# KASI (Korea Astronomy and Space Science Institute) Calendar API
+# - Solar <-> Lunar conversion (including leap month validation)
+# - Authority: KASI via data.go.kr OpenAPI
+# ==================================================
+KASI_SERVICE_KEY = os.getenv("KASI_SERVICE_KEY", "").strip()
+KASI_BASE = "https://apis.data.go.kr/B090041/openapi/service/LrsrCldInfoService"
 
-
-def _ssot_log(event: str, payload: dict):
-    try:
-        print("[SSOT]", event, json.dumps(payload, ensure_ascii=False), flush=True)
-    except Exception:
-        print("[SSOT]", event, payload, flush=True)
-
-def _kasi_parse_item(resp: "requests.Response") -> dict:
+def _kasi_parse_item(resp: requests.Response) -> dict:
     """Parse KASI response item safely (JSON preferred, XML fallback)."""
     # JSON (when _type=json works)
     try:
@@ -259,11 +238,44 @@ def kasi_lun_to_sol(lun_year: int, lun_month: int, lun_day: int, is_leap_month: 
     sol_day = int(item.get("solDay"))
     return {"year": sol_year, "month": sol_month, "day": sol_day}
 
+_JIEQI_TABLE_CACHE = None
+_JIEQI_TABLE_PATH_USED = None
+
 def load_jieqi_table():
-    if not JIEQI_TABLE_PATH.exists():
-        raise FileNotFoundError(f"[JIEQI] missing file: {JIEQI_TABLE_PATH}")
-    with JIEQI_TABLE_PATH.open("r", encoding="utf-8") as f:
-        return json.load(f)
+    """Load 24절기 table with caching and robust path resolution.
+
+    We DO NOT silently swallow errors here because this table is used for
+    ipchun(입춘) boundary. If the file is missing in the container, we want a
+    clear error in logs (and client detail).
+    """
+    global _JIEQI_TABLE_CACHE, _JIEQI_TABLE_PATH_USED
+
+    if _JIEQI_TABLE_CACHE is not None:
+        return _JIEQI_TABLE_CACHE
+
+    p = _resolve_jieqi_path()
+    _JIEQI_TABLE_PATH_USED = str(p) if p else str(JIEQI_TABLE_PATH)
+
+    if not p or not p.exists():
+        msg = f"[JIEQI] missing file (tried env or candidates). last={_JIEQI_TABLE_PATH_USED}"
+        print(msg, flush=True)
+        raise FileNotFoundError(msg)
+
+    with p.open("r", encoding="utf-8") as f:
+        table = json.load(f)
+
+    # quick sanity log (years range)
+    try:
+        years = sorted(int(k) for k in table.keys() if str(k).isdigit())
+        if years:
+            print(f"[JIEQI] loaded {p} years={years[0]}..{years[-1]} count={len(years)}", flush=True)
+        else:
+            print(f"[JIEQI] loaded {p} (no year keys?)", flush=True)
+    except Exception:
+        print(f"[JIEQI] loaded {p}", flush=True)
+
+    _JIEQI_TABLE_CACHE = table
+    return table
 
 def _parse_dt_any(value, assume_tz):
     if value is None:
@@ -289,9 +301,13 @@ def _pick_item_dt(item):
 
 def get_jieqi_with_fallback(year: str):
     table = load_jieqi_table()
-    year_data = table.get(year)
+    y = str(year)
+    year_data = table.get(y)
+    if not year_data and y.isdigit():
+        # defensive: sometimes keys could be int in a different build step
+        year_data = table.get(int(y))
     if not year_data:
-        raise ValueError(f"No jieqi for {year}")
+        raise ValueError(f"No jieqi for {y}")
     return year_data
 
 def find_ipchun_dt(jieqi_list):
@@ -731,10 +747,6 @@ def get_hour_pillar(day_pillar, hh, mm):
     hour_stem = STEMS[stem_index]
     return {"stem": hour_stem, "branch": hour_branch, "ganji": hour_stem + hour_branch}
 
-
-# FastAPI application instance (must exist before route decorators)
-app = FastAPI()
-
 @app.get("/api/saju/calc")
 def calc_saju(
     birth: str = Query(...),
@@ -743,72 +755,40 @@ def calc_saju(
     gender: str = Query("unknown"),
     is_leap_month: bool = Query(False),
 ):
-
-    _rid, _start = _log_req_start('/api/saju/calc', locals())
-    _log_req_step(_rid, 'entered_calc_saju')
     from fastapi import HTTPException
 
     # --------------------------------------------------
     # --------------------------------------------------
-    # 1) Interpret input date by calendar type (SSOT 강제 라우팅)
+    # 1) Interpret input date by calendar type
     # - calendar=solar: birth is solar YYYY-MM-DD
     # - calendar=lunar: birth is lunar YYYY-MM-DD (+ is_leap_month)
     # Always compute pillars based on confirmed solar date.
-    #
-    # SSOT RULE (최우선)
-    #   A) SSOT hit  -> 절대 외부(KASI) 호출하지 않고 그대로 사용
-    #   B) SSOT miss -> KASI 호출 후 SSOT에 반드시 upsert (idempotent)
-    #   C) DB 불가   -> KASI로 진행(비상 폴백) + 응답 meta에 상태 표기
-    #
-    # NOTE: calendar_ssot PK는 (birth, calendar, is_leap_month).
-    #       같은 키로 여러 번 조회하면 "새 row"가 아니라 upsert(update) 되는 게 정상.
+    # SSOT behavior:
+    #   1) Try `calendar_ssot` cache first (birth+calendar+is_leap_month)
+    #   2) Cache miss -> call KASI -> best-effort upsert
     # --------------------------------------------------
     try:
         birth_date_in = datetime.strptime(birth, "%Y-%m-%d").date()
 
-        cal_norm, leap_norm = _norm_calendar_key(calendar, bool(is_leap_month))
-        ssot_key = _ssot_key_str(birth_date_in, cal_norm, leap_norm)
-
-        ssot_enabled = bool(_ssot_get_conn())
-        cache_hit = False
-
-        # A) SSOT first (강제)
-        ssot_row = ssot_lookup(birth_date_in, cal_norm, leap_norm) if ssot_enabled else None
-        if ssot_row and ssot_row.get("solar_confirmed"):
-            cache_hit = True
-            solar_confirmed = ssot_row["solar_confirmed"]
-            lunar_meta = ssot_row.get("lunar_confirmed") or {}
-            _ssot_log("hit", {"key": ssot_key, "calendar": cal_norm, "is_leap_month": leap_norm})
+        cached = ssot_lookup(birth_date_in, calendar, bool(is_leap_month))
+        if cached and cached.get("solar_confirmed"):
+            solar_confirmed = cached["solar_confirmed"]
+            lunar_meta = cached.get("lunar_confirmed") or {}
         else:
-            _ssot_log("miss", {"key": ssot_key, "calendar": cal_norm, "is_leap_month": leap_norm, "ssot_enabled": ssot_enabled})
-
-            # B) Cache miss -> KASI
-            if cal_norm == "lunar":
+            if (calendar or "").lower() == "lunar":
                 sol = kasi_lun_to_sol(
-                    birth_date_in.year, birth_date_in.month, birth_date_in.day, leap_norm
+                    birth_date_in.year, birth_date_in.month, birth_date_in.day, bool(is_leap_month)
                 )
                 solar_confirmed = date(sol["year"], sol["month"], sol["day"])
             else:
                 solar_confirmed = birth_date_in
 
-            # lunar meta is returned for UX/printing; keep as-is (KASI authority)
             lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
-
-            # C) 반드시 SSOT upsert (가능하면)
-            if ssot_enabled:
-                ssot_upsert(
-                    birth_date_in,
-                    cal_norm,
-                    leap_norm,
-                    solar_confirmed,
-                    lunar_meta,
-                    source="kasi",
-                    obs={"ssot_key": ssot_key, "path": "/api/saju/calc"},
-                )
+            ssot_upsert(birth_date_in, calendar, bool(is_leap_month), solar_confirmed, lunar_meta)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"KASI/SSOT calendar conversion failed: {e}")
-
-# 2) Time handling (kept as-is)
+    # --------------------------------------------------
+    # 2) Time handling (kept as-is)
     # --------------------------------------------------
     bt = (birth_time or "").strip().lower()
     if bt and bt not in ("unknown", "null", "none"):
@@ -848,10 +828,10 @@ def calc_saju(
             _branch = _p.get("branch")
             if _branch:
                 # 점신/당근 호환: 각 기둥의 '천간' 기준으로 12운성 산출
-                # (연주는 연간, 월주는 월간, 일주는 일간, 시주는 시간)
-                base_stem = day_stem
-                _p["twelve_stage"] = twelve_stage(base_stem, _branch)
-                _p["twelve_sinsal"] = twelve_sinsal(pillars.get("year",{}).get("branch",""), _branch)
+                    # (연주는 연간, 월주는 월간, 일주는 일간, 시주는 시간)
+                    base_stem = day_stem
+                    _p["twelve_stage"] = twelve_stage(base_stem, _branch)
+                    _p["twelve_sinsal"] = twelve_sinsal(pillars.get("year",{}).get("branch",""), _branch)
 
     return {
         "input": {
@@ -862,14 +842,6 @@ def calc_saju(
             "is_leap_month": is_leap_month,
         },
         "meta": {
-
-"ssot": {
-    "enabled": ssot_enabled,
-    "key": ssot_key,
-    "cache_hit": cache_hit,
-    "calendar": cal_norm,
-    "is_leap_month": leap_norm,
-},
             "solar_confirmed": {
                 "year": input_dt.year,
                 "month": input_dt.month,
@@ -1071,6 +1043,4 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
     final_pdf = BytesIO()
     output.write(final_pdf)
     final_pdf.seek(0)
-    _log_req_end(_rid, _start, 200)
-
     return final_pdf.read()
