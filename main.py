@@ -30,8 +30,8 @@ def _ssot_get_conn():
         return None
 
 def ssot_lookup(birth_dt: date, calendar: str, is_leap_month: bool):
-    print("[SSOT] LOOKUP", flush=True)
     """Return cached row dict or None."""
+    print("[SSOT] LOOKUP", flush=True)
     conn = _ssot_get_conn()
     if not conn:
         print("[SSOT] MISS", flush=True)
@@ -47,12 +47,12 @@ def ssot_lookup(birth_dt: date, calendar: str, is_leap_month: bool):
                 """,
                 (birth_dt, (calendar or "").lower(), bool(is_leap_month)),
             )
-row = cur.fetchone()
-if row:
-    print("[SSOT] HIT", flush=True)
-else:
-    print("[SSOT] MISS", flush=True)
-return row
+            row = cur.fetchone()
+            if row:
+                print("[SSOT] HIT", flush=True)
+            else:
+                print("[SSOT] MISS", flush=True)
+            return row
     except Exception:
         print("[SSOT] MISS", flush=True)
         return None
