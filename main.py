@@ -26,12 +26,15 @@ def _ssot_get_conn():
     try:
         return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
     except Exception:
+        print("[SSOT] MISS", flush=True)
         return None
 
 def ssot_lookup(birth_dt: date, calendar: str, is_leap_month: bool):
+    print("[SSOT] LOOKUP", flush=True)
     """Return cached row dict or None."""
     conn = _ssot_get_conn()
     if not conn:
+        print("[SSOT] MISS", flush=True)
         return None
     try:
         with conn, conn.cursor() as cur:
@@ -44,8 +47,14 @@ def ssot_lookup(birth_dt: date, calendar: str, is_leap_month: bool):
                 """,
                 (birth_dt, (calendar or "").lower(), bool(is_leap_month)),
             )
-            return cur.fetchone()
+row = cur.fetchone()
+if row:
+    print("[SSOT] HIT", flush=True)
+else:
+    print("[SSOT] MISS", flush=True)
+return row
     except Exception:
+        print("[SSOT] MISS", flush=True)
         return None
     finally:
         try:
@@ -87,6 +96,7 @@ def ssot_upsert(birth_dt: date, calendar: str, is_leap_month: bool, solar_confir
                     ),
                 ),
             )
+            print("[SSOT] UPSERT", flush=True)
     except Exception:
         pass
     finally:
