@@ -43,9 +43,10 @@ def ssot_lookup(birth_dt: date, calendar: str, is_leap_month: bool):
                 limit 1
                 """,
                 (birth_dt, (calendar or "").lower(), bool(is_leap_month)),
-            )
-            return cur.fetchone()
-    except Exception:
+            )            row = cur.fetchone()
+            print(f"[SSOT] {'HIT' if row else 'MISS'} key={birth_dt}|{(calendar or '').lower()}|{int(bool(is_leap_month))}", flush=True)
+            return row
+except Exception:
         return None
     finally:
         try:
@@ -87,6 +88,7 @@ def ssot_upsert(birth_dt: date, calendar: str, is_leap_month: bool, solar_confir
                     ),
                 ),
             )
+            print(f"[SSOT] UPSERT key={birth_dt}|{(calendar or '').lower()}|{int(bool(is_leap_month))} solar={solar_confirmed_dt}", flush=True)
     except Exception:
         pass
     finally:
