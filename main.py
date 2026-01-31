@@ -226,6 +226,24 @@ def kasi_sol_to_lun(sol_year: int, sol_month: int, sol_day: int) -> dict:
     lun_day = int(item.get("lunDay"))
     leap = (item.get("lunLeapmonth") == "윤")
     label = f"음력 {lun_year}년 " + (f"윤{lun_month}월 " if leap else f"{lun_month}월 ") + f"{lun_day}일"
+
+    # --------------------------------------------------
+    # 4) Fortune bundle (대운/연운/월운/일진) — added only
+    # --------------------------------------------------
+    try:
+        jieqi_next = get_jieqi_with_fallback(str(input_dt.year + 1))
+        fortune_bundle = build_fortune_bundle(
+            input_dt=input_dt,
+            solar_confirmed_dt=solar_confirmed,
+            year_pillar=year_pillar,
+            month_pillar=month_pillar,
+            gender=gender,
+            jieqi_this_year=jieqi_this,
+            jieqi_next_year=jieqi_next,
+        )
+    except Exception:
+        fortune_bundle = {"daewoon": [], "yearly": {}, "monthly": {}, "daily": {}}
+
     return {
         "year": lun_year,
         "month": lun_month,
@@ -246,6 +264,24 @@ def kasi_lun_to_sol(lun_year: int, lun_month: int, lun_day: int, is_leap_month: 
     sol_year = int(item.get("solYear"))
     sol_month = int(item.get("solMonth"))
     sol_day = int(item.get("solDay"))
+
+    # --------------------------------------------------
+    # 4) Fortune bundle (대운/연운/월운/일진) — added only
+    # --------------------------------------------------
+    try:
+        jieqi_next = get_jieqi_with_fallback(str(input_dt.year + 1))
+        fortune_bundle = build_fortune_bundle(
+            input_dt=input_dt,
+            solar_confirmed_dt=solar_confirmed,
+            year_pillar=year_pillar,
+            month_pillar=month_pillar,
+            gender=gender,
+            jieqi_this_year=jieqi_this,
+            jieqi_next_year=jieqi_next,
+        )
+    except Exception:
+        fortune_bundle = {"daewoon": [], "yearly": {}, "monthly": {}, "daily": {}}
+
     return {"year": sol_year, "month": sol_month, "day": sol_day}
 
 _JIEQI_TABLE_CACHE = None
@@ -769,6 +805,24 @@ def gregorian_to_jdn(y, m, d):
 
 def get_day_pillar(dt: date):
     idx = (gregorian_to_jdn(dt.year, dt.month, dt.day) + DAY_PILLAR_JDN_OFFSET) % 60
+
+    # --------------------------------------------------
+    # 4) Fortune bundle (대운/연운/월운/일진) — added only
+    # --------------------------------------------------
+    try:
+        jieqi_next = get_jieqi_with_fallback(str(input_dt.year + 1))
+        fortune_bundle = build_fortune_bundle(
+            input_dt=input_dt,
+            solar_confirmed_dt=solar_confirmed,
+            year_pillar=year_pillar,
+            month_pillar=month_pillar,
+            gender=gender,
+            jieqi_this_year=jieqi_this,
+            jieqi_next_year=jieqi_next,
+        )
+    except Exception:
+        fortune_bundle = {"daewoon": [], "yearly": {}, "monthly": {}, "daily": {}}
+
     return {
         "stem": STEMS[idx % 10],
         "branch": BRANCHES[idx % 12],
@@ -778,6 +832,24 @@ def get_day_pillar(dt: date):
 
 def get_year_pillar(year: int):
     idx = (year - 1984) % 60
+
+    # --------------------------------------------------
+    # 4) Fortune bundle (대운/연운/월운/일진) — added only
+    # --------------------------------------------------
+    try:
+        jieqi_next = get_jieqi_with_fallback(str(input_dt.year + 1))
+        fortune_bundle = build_fortune_bundle(
+            input_dt=input_dt,
+            solar_confirmed_dt=solar_confirmed,
+            year_pillar=year_pillar,
+            month_pillar=month_pillar,
+            gender=gender,
+            jieqi_this_year=jieqi_this,
+            jieqi_next_year=jieqi_next,
+        )
+    except Exception:
+        fortune_bundle = {"daewoon": [], "yearly": {}, "monthly": {}, "daily": {}}
+
     return {
         "stem": STEMS[idx % 10],
         "branch": BRANCHES[idx % 12],
@@ -824,6 +896,24 @@ def get_month_pillar(input_dt, saju_year_pillar, jieqi_this_year, jieqi_prev_yea
     month_index = MONTH_BRANCH_SEQ.index(month_branch)
     stem_index = (STEMS.index(yin_month_stem) + month_index) % 10
     month_stem = STEMS[stem_index]
+
+    # --------------------------------------------------
+    # 4) Fortune bundle (대운/연운/월운/일진) — added only
+    # --------------------------------------------------
+    try:
+        jieqi_next = get_jieqi_with_fallback(str(input_dt.year + 1))
+        fortune_bundle = build_fortune_bundle(
+            input_dt=input_dt,
+            solar_confirmed_dt=solar_confirmed,
+            year_pillar=year_pillar,
+            month_pillar=month_pillar,
+            gender=gender,
+            jieqi_this_year=jieqi_this,
+            jieqi_next_year=jieqi_next,
+        )
+    except Exception:
+        fortune_bundle = {"daewoon": [], "yearly": {}, "monthly": {}, "daily": {}}
+
     return {"stem": month_stem, "branch": month_branch, "ganji": month_stem + month_branch}
 
 HOUR_BRANCH_SEQ = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
@@ -844,7 +934,195 @@ def get_hour_pillar(day_pillar, hh, mm):
     zi_hour_stem = DAY_STEM_TO_ZI_HOUR_STEM[day_pillar["stem"]]
     stem_index = (STEMS.index(zi_hour_stem) + HOUR_BRANCH_SEQ.index(hour_branch)) % 10
     hour_stem = STEMS[stem_index]
+
+    # --------------------------------------------------
+    # 4) Fortune bundle (대운/연운/월운/일진) — added only
+    # --------------------------------------------------
+    try:
+        jieqi_next = get_jieqi_with_fallback(str(input_dt.year + 1))
+        fortune_bundle = build_fortune_bundle(
+            input_dt=input_dt,
+            solar_confirmed_dt=solar_confirmed,
+            year_pillar=year_pillar,
+            month_pillar=month_pillar,
+            gender=gender,
+            jieqi_this_year=jieqi_this,
+            jieqi_next_year=jieqi_next,
+        )
+    except Exception:
+        fortune_bundle = {"daewoon": [], "yearly": {}, "monthly": {}, "daily": {}}
+
     return {"stem": hour_stem, "branch": hour_branch, "ganji": hour_stem + hour_branch}
+
+
+# ==================================================
+# FORTUNE (대운/연운/월운/일진) — Extension only
+# - Adds "fortune" key to response WITHOUT changing existing keys/logic
+# - Uses Jieqi table already loaded for time boundaries
+# ==================================================
+import math as _math
+
+def _sexagenary_shift(ganji: str, step: int) -> str:
+    """Shift ganji by step on stem+branch cycles (not 60-index, but aligned step)."""
+    if not ganji or len(ganji) < 2:
+        return ganji
+    g, j = ganji[0], ganji[1]
+    si = STEMS.index(g)
+    bi = BRANCHES.index(j)
+    return STEMS[(si + step) % 10] + BRANCHES[(bi + step) % 12]
+
+def _daewoon_forward(gender: str, year_stem: str) -> bool:
+    """
+    순행/역행:
+    - 남자+양년(甲丙戊庚壬) / 여자+음년(乙丁己辛癸) => 순행
+    - 그 외 => 역행
+    """
+    g = (gender or "").lower()
+    is_male = g in ("m", "male", "man", "남", "남자", "남성")
+    is_female = g in ("f", "female", "woman", "여", "여자", "여성")
+    yang = year_stem in YANG_STEMS
+    if is_male:
+        return bool(yang)
+    if is_female:
+        return not bool(yang)
+    # unknown: default to yang-year forward, yin-year backward (stable)
+    return bool(yang)
+
+def _next_jieqi_dt(after_dt: datetime, jieqi_this_year: list, jieqi_next_year: list) -> datetime:
+    """Return the next jieqi datetime strictly after after_dt (KST)."""
+    cands = []
+    for item in (jieqi_this_year or []):
+        dt = _pick_item_dt(item)
+        if dt and dt > after_dt:
+            cands.append(dt)
+    if cands:
+        return min(cands)
+    for item in (jieqi_next_year or []):
+        dt = _pick_item_dt(item)
+        if dt and dt > after_dt:
+            cands.append(dt)
+    if not cands:
+        # should never happen if table is valid; keep deterministic fallback
+        return after_dt + timedelta(days=30)
+    return min(cands)
+
+def _daewoon_start_age(input_dt: datetime, jieqi_this_year: list, jieqi_next_year: list) -> int:
+    """
+    대운수 = ceil( (출생시각 → 다음 절기까지 남은 시간) / 3일 )
+    range clamp: 1..12
+    """
+    nxt = _next_jieqi_dt(input_dt, jieqi_this_year, jieqi_next_year)
+    diff_days = (nxt - input_dt).total_seconds() / 86400.0
+    age = int(_math.ceil(diff_days / 3.0))
+    if age < 1: age = 1
+    if age > 12: age = 12
+    return age
+
+def build_fortune_bundle(
+    input_dt: datetime,
+    solar_confirmed_dt: date,
+    year_pillar: dict,
+    month_pillar: dict,
+    gender: str,
+    jieqi_this_year: list,
+    jieqi_next_year: list,
+    daily_month_year: int | None = None,
+    daily_month: int | None = None,
+) -> dict:
+    """
+    Returns dict to be attached as response["fortune"].
+    Frontend can ignore fields it doesn't need.
+    """
+    birth_year = int(solar_confirmed_dt.year)
+
+    start_age = _daewoon_start_age(input_dt, jieqi_this_year, jieqi_next_year)
+    forward = _daewoon_forward(gender, (year_pillar or {}).get("stem", ""))
+
+    base_ganji = (month_pillar or {}).get("ganji", "")
+    daewoon = []
+    for i in range(10):
+        step = i if forward else -i
+        ganji = _sexagenary_shift(base_ganji, step)
+        from_age = start_age + i * 10
+        to_age = from_age + 9
+        from_year = birth_year + from_age
+        to_year = from_year + 9
+        daewoon.append({
+            "index": i,
+            "start_age": start_age,
+            "from_age": from_age,
+            "to_age": to_age,
+            "from_year": from_year,
+            "to_year": to_year,
+            "ganji": ganji,
+            "direction": "forward" if forward else "backward",
+        })
+
+    # Yearly for the first daewoon block by default (frontend may pick other index)
+    y_from = daewoon[0]["from_year"]
+    y_to = daewoon[0]["to_year"]
+    yearly_items = []
+    for y in range(y_from, y_to + 1):
+        yp = get_year_pillar(y)
+        yearly_items.append({"year": y, "ganji": yp["ganji"], "stem": yp["stem"], "branch": yp["branch"]})
+
+    # Monthly for the first year in that range by default
+    monthly_year = y_from
+    y_stem = get_year_pillar(monthly_year)["stem"]
+    yin_month_stem = YEAR_STEM_TO_YIN_MONTH_STEM.get(y_stem, "丙")
+    monthly_items = []
+    for idx, b in enumerate(MONTH_BRANCH_SEQ):
+        sidx = (STEMS.index(yin_month_stem) + idx) % 10
+        ms = STEMS[sidx]
+        monthly_items.append({
+            "month_index": idx + 1,  # 1..12 (절기월: 寅월=1)
+            "stem": ms,
+            "branch": b,
+            "ganji": ms + b,
+        })
+
+    # Daily calendar for requested month or current KST month
+    now_kst = datetime.now(tz=KST)
+    cal_y = int(daily_month_year or now_kst.year)
+    cal_m = int(daily_month or now_kst.month)
+    first = date(cal_y, cal_m, 1)
+    # next month
+    if cal_m == 12:
+        next_first = date(cal_y + 1, 1, 1)
+    else:
+        next_first = date(cal_y, cal_m + 1, 1)
+    days = (next_first - first).days
+    daily_items = []
+    for d in range(1, days + 1):
+        dd = date(cal_y, cal_m, d)
+        dp = get_day_pillar(dd)
+        daily_items.append({"date": dd.isoformat(), "ganji": dp["ganji"], "stem": dp["stem"], "branch": dp["branch"]})
+
+
+    # --------------------------------------------------
+    # 4) Fortune bundle (대운/연운/월운/일진) — added only
+    # --------------------------------------------------
+    try:
+        jieqi_next = get_jieqi_with_fallback(str(input_dt.year + 1))
+        fortune_bundle = build_fortune_bundle(
+            input_dt=input_dt,
+            solar_confirmed_dt=solar_confirmed,
+            year_pillar=year_pillar,
+            month_pillar=month_pillar,
+            gender=gender,
+            jieqi_this_year=jieqi_this,
+            jieqi_next_year=jieqi_next,
+        )
+    except Exception:
+        fortune_bundle = {"daewoon": [], "yearly": {}, "monthly": {}, "daily": {}}
+
+    return {
+        "daewoon": daewoon,
+        "yearly": {"range": {"from_year": y_from, "to_year": y_to}, "items": yearly_items},
+        "monthly": {"year": monthly_year, "items": monthly_items},
+        "daily": {"year": cal_y, "month": cal_m, "items": daily_items},
+    }
+
 
 @app.get("/api/saju/calc")
 def calc_saju(
@@ -932,6 +1210,24 @@ def calc_saju(
                     _p["twelve_stage"] = twelve_stage(base_stem, _branch)
                     _p["twelve_sinsal"] = twelve_sinsal(pillars.get("year",{}).get("branch",""), _branch)
 
+
+    # --------------------------------------------------
+    # 4) Fortune bundle (대운/연운/월운/일진) — added only
+    # --------------------------------------------------
+    try:
+        jieqi_next = get_jieqi_with_fallback(str(input_dt.year + 1))
+        fortune_bundle = build_fortune_bundle(
+            input_dt=input_dt,
+            solar_confirmed_dt=solar_confirmed,
+            year_pillar=year_pillar,
+            month_pillar=month_pillar,
+            gender=gender,
+            jieqi_this_year=jieqi_this,
+            jieqi_next_year=jieqi_next,
+        )
+    except Exception:
+        fortune_bundle = {"daewoon": [], "yearly": {}, "monthly": {}, "daily": {}}
+
     return {
         "input": {
             "birth": birth,
@@ -952,6 +1248,7 @@ def calc_saju(
             "ten_gods": calculate_ten_gods_ratio(pillars),
         },
         "pillars": pillars,
+        "fortune": fortune_bundle,
         "ilju_animal": get_ilju_animal(day_pillar.get("stem", ""), day_pillar.get("branch", "")),
         "ilju_emoji": get_ilju_emoji(day_pillar.get("branch", "")),
         "debug": {
