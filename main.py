@@ -639,6 +639,13 @@ STEM_ELEMENT = {
     "庚": "금", "辛": "금",
     "壬": "수", "癸": "수",
 }
+BRANCH_ELEMENT = {
+    "寅": "목", "卯": "목",
+    "巳": "화", "午": "화",
+    "辰": "토", "戌": "토", "丑": "토", "未": "토",
+    "申": "금", "酉": "금",
+    "亥": "수", "子": "수",
+}
 ELEMENT_COLOR_KR = {
     "목": "푸른",
     "화": "붉은",
@@ -669,6 +676,41 @@ def get_ilju_animal(day_gan: str, day_ji: str) -> str:
 def get_ilju_emoji(day_ji: str) -> str:
     animal = BRANCH_ANIMAL_KR.get(day_ji, "")
     return ANIMAL_EMOJI.get(animal, "🐾")
+
+def calculate_elements_ratio(pillars: dict) -> dict:
+    """Calculate five elements ratio from 8 characters (stems + branches)."""
+    elements = []
+    
+    # Extract stems and branches from year/month/day/hour
+    for key in ("year", "month", "day", "hour"):
+        pillar = pillars.get(key)
+        if not pillar:
+            continue
+        stem = pillar.get("stem", "")
+        branch = pillar.get("branch", "")
+        if stem:
+            elements.append(STEM_ELEMENT.get(stem, ""))
+        if branch:
+            elements.append(BRANCH_ELEMENT.get(branch, ""))
+    
+    # Filter empty and count
+    elements = [e for e in elements if e]
+    count = {"목": 0, "화": 0, "토": 0, "금": 0, "수": 0}
+    for e in elements:
+        if e in count:
+            count[e] += 1
+    
+    # Calculate ratio (round to 1 decimal)
+    total = len(elements)
+    ratio = {
+        "wood": {"count": count["목"], "ratio": round((count["목"] / total * 100), 1) if total > 0 else 0},
+        "fire": {"count": count["화"], "ratio": round((count["화"] / total * 100), 1) if total > 0 else 0},
+        "earth": {"count": count["토"], "ratio": round((count["토"] / total * 100), 1) if total > 0 else 0},
+        "metal": {"count": count["금"], "ratio": round((count["금"] / total * 100), 1) if total > 0 else 0},
+        "water": {"count": count["수"], "ratio": round((count["수"] / total * 100), 1) if total > 0 else 0},
+    }
+    
+    return ratio
 
 DAY_PILLAR_JDN_OFFSET = 49
 
@@ -859,6 +901,7 @@ def calc_saju(
                 "label_kr": f"양력 {input_dt.year}년 {input_dt.month}월 {input_dt.day}일",
             },
             "lunar": lunar_meta,
+            "elements": calculate_elements_ratio(pillars),
         },
         "pillars": pillars,
         "ilju_animal": get_ilju_animal(day_pillar.get("stem", ""), day_pillar.get("branch", "")),
