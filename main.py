@@ -1006,6 +1006,23 @@ def _next_jieqi_dt(after_dt: datetime, jieqi_this_year: list, jieqi_next_year: l
         return after_dt + timedelta(days=30)
     return min(cands)
 
+def _prev_jieqi_dt(before_dt: datetime, jieqi_this_year: list, jieqi_prev_year: list) -> datetime:
+    """Return the previous jieqi datetime strictly before before_dt (KST)."""
+    cands = []
+    for item in (jieqi_this_year or []):
+        dt = _pick_item_dt(item)
+        if dt and dt < before_dt:
+            cands.append(dt)
+    if cands:
+        return max(cands)
+    for item in (jieqi_prev_year or []):
+        dt = _pick_item_dt(item)
+        if dt and dt < before_dt:
+            cands.append(dt)
+    if not cands:
+        return before_dt - timedelta(days=30)
+    return max(cands)
+
 def _daewoon_start_age(input_dt: datetime, jieqi_this_year: list, jieqi_next_year: list) -> int:
     """
     대운수 = ceil( (출생시각 → 다음 절기까지 남은 시간) / 3일 )
@@ -1025,6 +1042,7 @@ def build_fortune_bundle(
     month_pillar: dict,
     gender: str,
     jieqi_this_year: list,
+    jieqi_prev_year: list,
     jieqi_next_year: list,
     daily_month_year: int | None = None,
     daily_month: int | None = None,
@@ -1035,8 +1053,8 @@ def build_fortune_bundle(
     """
     birth_year = int(solar_confirmed_dt.year)
 
-    start_age = _daewoon_start_age(input_dt, jieqi_this_year, jieqi_next_year)
     forward = _daewoon_forward(gender, (year_pillar or {}).get("stem", ""))
+    start_age = _daewoon_start_age(input_dt, jieqi_this_year, jieqi_prev_year, jieqi_next_year, forward)
 
     base_ganji = (month_pillar or {}).get("ganji", "")
     daewoon = []
@@ -1048,7 +1066,8 @@ def build_fortune_bundle(
         from_year = birth_year + from_age
         to_year = from_year + 9
         daewoon.append({
-            "index": i,
+            "index": i+1,
+            "block_index": i,
             "start_age": start_age,
             "from_age": from_age,
             "to_age": to_age,
