@@ -712,6 +712,53 @@ def calculate_elements_ratio(pillars: dict) -> dict:
     
     return ratio
 
+def calculate_ten_gods_ratio(pillars: dict) -> dict:
+    """Calculate ten gods ratio from 8 characters (4 stems + 4 branches)."""
+    ten_gods = []
+    
+    # Extract ten_god from stems and branches
+    for key in ("year", "month", "day", "hour"):
+        pillar = pillars.get(key)
+        if not pillar:
+            continue
+        # Stem ten god
+        ten_god_stem = pillar.get("ten_god_stem", "")
+        if ten_god_stem:
+            ten_gods.append(ten_god_stem)
+        # Branch ten god (main hidden stem)
+        ten_god_branch = pillar.get("ten_god_branch", "")
+        if ten_god_branch:
+            ten_gods.append(ten_god_branch)
+    
+    # Count each ten god
+    count = {
+        "비견": 0, "겁재": 0,
+        "식신": 0, "상관": 0,
+        "편재": 0, "정재": 0,
+        "편관": 0, "정관": 0,
+        "편인": 0, "정인": 0
+    }
+    for tg in ten_gods:
+        if tg in count:
+            count[tg] += 1
+    
+    # Calculate ratio (round to 1 decimal)
+    total = len([tg for tg in ten_gods if tg])
+    ratio = {
+        "bijeon": {"count": count["비견"], "ratio": round((count["비견"] / total * 100), 1) if total > 0 else 0},
+        "geopjae": {"count": count["겁재"], "ratio": round((count["겁재"] / total * 100), 1) if total > 0 else 0},
+        "siksin": {"count": count["식신"], "ratio": round((count["식신"] / total * 100), 1) if total > 0 else 0},
+        "sanggwan": {"count": count["상관"], "ratio": round((count["상관"] / total * 100), 1) if total > 0 else 0},
+        "pyeonjae": {"count": count["편재"], "ratio": round((count["편재"] / total * 100), 1) if total > 0 else 0},
+        "jeongjae": {"count": count["정재"], "ratio": round((count["정재"] / total * 100), 1) if total > 0 else 0},
+        "pyeongwan": {"count": count["편관"], "ratio": round((count["편관"] / total * 100), 1) if total > 0 else 0},
+        "jeonggwan": {"count": count["정관"], "ratio": round((count["정관"] / total * 100), 1) if total > 0 else 0},
+        "pyeonin": {"count": count["편인"], "ratio": round((count["편인"] / total * 100), 1) if total > 0 else 0},
+        "jeongin": {"count": count["정인"], "ratio": round((count["정인"] / total * 100), 1) if total > 0 else 0},
+    }
+    
+    return ratio
+
 DAY_PILLAR_JDN_OFFSET = 49
 
 def gregorian_to_jdn(y, m, d):
@@ -902,6 +949,7 @@ def calc_saju(
             },
             "lunar": lunar_meta,
             "elements": calculate_elements_ratio(pillars),
+            "ten_gods": calculate_ten_gods_ratio(pillars),
         },
         "pillars": pillars,
         "ilju_animal": get_ilju_animal(day_pillar.get("stem", ""), day_pillar.get("branch", "")),
