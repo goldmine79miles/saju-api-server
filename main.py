@@ -1074,7 +1074,7 @@ def build_fortune_bundle(
         ganji = _sexagenary_shift(base_ganji, step)
         from_age = start_age + i * 10
         to_age = from_age + 9
-        from_year = birth_year + from_age
+        from_year = birth_year + (from_age - 1)
         to_year = from_year + 9
         daewoon.append({
             "index": i,
