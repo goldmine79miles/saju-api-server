@@ -1513,3 +1513,89 @@ def download_calendar():
         raise HTTPException(status_code=404, detail="CalendarData.ts not found. Run /api/generate-calendar first.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+# ================================
+# DAILY FORTUNE LEVEL (ADDED SAFE)
+# ================================
+
+TEN_SCORE = {
+    "비견": -6, "겁재": -8,
+    "식신": 10, "상관": 6,
+    "정재": 10, "편재": 8,
+    "정관": -6, "편관": -8,
+    "정인": 6, "편인": 4,
+}
+
+STEM_ELEMENT_MAP = {
+    "甲": "wood", "乙": "wood",
+    "丙": "fire", "丁": "fire",
+    "戊": "earth", "己": "earth",
+    "庚": "metal", "辛": "metal",
+    "壬": "water", "癸": "water",
+}
+
+BRANCH_RELATION_SCORE = {
+    "충": -12,
+    "합": 8,
+}
+
+BRANCH_CHUNG = {
+    "子": "午", "午": "子",
+    "丑": "未", "未": "丑",
+    "寅": "申", "申": "寅",
+    "卯": "酉", "酉": "卯",
+    "辰": "戌", "戌": "辰",
+    "巳": "亥", "亥": "巳",
+}
+
+def elem_balance_score(elem, elements):
+    if not elements or elem not in elements:
+        return 0
+    ratio = elements.get(elem, {}).get("ratio", 0)
+    if ratio < 10:
+        return 12
+    if ratio > 35:
+        return -12
+    return 0
+
+def branch_relation_score(day_branch, origin_branches):
+    score = 0
+    for b in origin_branches:
+        if BRANCH_CHUNG.get(day_branch) == b:
+            score += BRANCH_RELATION_SCORE["충"]
+    return score
+
+def calc_daily_level(chart, day_pillar):
+    score = 50
+
+    try:
+        ten = get_ten_god(chart["day_stem"], day_pillar["stem"])
+        score += TEN_SCORE.get(ten, 0)
+    except Exception:
+        pass
+
+    try:
+        elem = STEM_ELEMENT_MAP.get(day_pillar["stem"])
+        score += elem_balance_score(elem, chart.get("elements"))
+    except Exception:
+        pass
+
+    try:
+        score += branch_relation_score(
+            day_pillar["branch"],
+            chart.get("branches", [])
+        )
+    except Exception:
+        pass
+
+    if score >= 80:
+        return "길일"
+    if score >= 65:
+        return "양호"
+    if score >= 45:
+        return "보통"
+    if score >= 30:
+        return "신중"
+    return "주의"
