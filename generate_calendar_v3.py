@@ -31,8 +31,11 @@ def get_day_ganji(dt: date):
         "ganji": STEMS[idx % 10] + BRANCHES[idx % 12]
     }
 
-# 절기 데이터
-with open('data/jieqi_1900_2052.json', 'r', encoding='utf-8') as f:
+# 절기 데이터 (스크립트 위치 기준)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+JIEQI_PATH = os.path.join(SCRIPT_DIR, 'data', 'jieqi_1900_2052.json')
+
+with open(JIEQI_PATH, 'r', encoding='utf-8') as f:
     JIEQI_DATA = json.load(f)
 
 def get_jieqi_for_date(dt: date):
