@@ -116,6 +116,31 @@ app = FastAPI(
 )
 
 # ==================================================
+# STARTUP: 달력 데이터 자동 생성
+# ==================================================
+@app.on_event("startup")
+async def startup_generate_calendar():
+    """서버 시작 시 달력 데이터 생성 (백그라운드)"""
+    import subprocess
+    import threading
+    
+    def generate():
+        try:
+            print("🔄 달력 생성 시작...", flush=True)
+            subprocess.run(
+                ["python3", "generate_calendar_v3.py"],
+                timeout=600,  # 10분 타임아웃
+                check=True
+            )
+            print("✅ 달력 생성 완료!", flush=True)
+        except Exception as e:
+            print(f"❌ 달력 생성 실패: {e}", flush=True)
+    
+    # 백그라운드 스레드로 실행
+    thread = threading.Thread(target=generate, daemon=True)
+    thread.start()
+
+# ==================================================
 # PATHS
 # ==================================================
 THIS_DIR = Path(__file__).resolve().parent
@@ -1495,3 +1520,23 @@ def generate_calendar():
             return {"success": True, "output": result.stdout, "note": "Check server logs"}
     else:
         return {"success": False, "error": result.stderr}
+
+@app.get("/api/download-calendar")
+def download_calendar():
+    """생성된 CalendarData.ts 다운로드"""
+    import os
+    try:
+        if not os.path.exists("CalendarData.ts"):
+            return {"success": False, "error": "아직 생성 중입니다. 5분 후 다시 시도하세요."}
+        
+        with open("CalendarData.ts", "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        return {
+            "success": True, 
+            "size": len(content),
+            "lines": len(content.split('\n')),
+            "preview": content[:500] + "..."
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
