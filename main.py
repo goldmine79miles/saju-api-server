@@ -1536,7 +1536,7 @@ def download_calendar():
             "success": True, 
             "size": len(content),
             "lines": len(content.split('\n')),
-            "preview": content[:500] + "..."
+            "content": content  # 전체 내용 반환
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
