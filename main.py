@@ -123,6 +123,12 @@ async def startup_generate_calendar():
     """서버 시작 시 달력 데이터 생성 (백그라운드)"""
     import subprocess
     import threading
+    import os
+    
+    # 파일이 이미 있으면 생성 안 함
+    if os.path.exists("CalendarData.ts"):
+        print("✅ 달력 파일이 이미 있습니다. 생성 스킵.", flush=True)
+        return
     
     def generate():
         try:
