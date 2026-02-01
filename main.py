@@ -1285,6 +1285,7 @@ def calc_saju(
             "lunar": lunar_meta,
             "elements": calculate_elements_ratio(pillars),
             "ten_gods": calculate_ten_gods_ratio(pillars),
+            "daily_items": fortune_bundle.get("daily", {}).get("items", []),
         },
         "pillars": pillars,
         "fortune": fortune_bundle,
