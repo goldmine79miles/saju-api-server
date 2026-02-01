@@ -1263,6 +1263,8 @@ def calc_saju(
             jieqi_this_year=jieqi_this,
             jieqi_prev_year=jieqi_prev,
             jieqi_next_year=jieqi_next,
+            daily_month_year=2026,
+            daily_month=2,
         )
     except Exception:
         fortune_bundle = {"daewoon": [], "yearly": {}, "monthly": {}, "daily": {}}
