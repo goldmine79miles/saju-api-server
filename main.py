@@ -129,7 +129,7 @@ async def startup_generate_calendar():
             print("🔄 달력 생성 시작...", flush=True)
             subprocess.run(
                 ["python3", "generate_calendar_v3.py"],
-                timeout=600,  # 10분 타임아웃
+                timeout=1800,  # 30분 타임아웃
                 check=True
             )
             print("✅ 달력 생성 완료!", flush=True)
