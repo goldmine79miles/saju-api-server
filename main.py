@@ -1125,7 +1125,13 @@ def build_fortune_bundle(
     for d in range(1, days + 1):
         dd = date(cal_y, cal_m, d)
         dp = get_day_pillar(dd)
-        daily_items.append({"date": dd.isoformat(), "ganji": dp["ganji"], "stem": dp["stem"], "branch": dp["branch"]})
+        daily_items.append({
+            "date": dd.isoformat(),
+            "ganji": dp["ganji"],
+            "stem": dp["stem"],
+            "branch": dp["branch"],
+            "level": calc_daily_level(chart, dp),
+        })
 
 
     # --------------------------------------------------
