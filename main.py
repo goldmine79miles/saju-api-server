@@ -116,37 +116,6 @@ app = FastAPI(
 )
 
 # ==================================================
-# STARTUP: 달력 데이터 자동 생성
-# ==================================================
-@app.on_event("startup")
-async def startup_generate_calendar():
-    """서버 시작 시 달력 데이터 생성 (백그라운드)"""
-    import subprocess
-    import threading
-    import os
-    
-    # 파일이 이미 있으면 생성 안 함
-    if os.path.exists("CalendarData.ts"):
-        print("✅ 달력 파일이 이미 있습니다. 생성 스킵.", flush=True)
-        return
-    
-    def generate():
-        try:
-            print("🔄 달력 생성 시작...", flush=True)
-            subprocess.run(
-                ["python3", "generate_calendar_v3.py"],
-                timeout=1800,  # 30분 타임아웃
-                check=True
-            )
-            print("✅ 달력 생성 완료!", flush=True)
-        except Exception as e:
-            print(f"❌ 달력 생성 실패: {e}", flush=True)
-    
-    # 백그라운드 스레드로 실행
-    thread = threading.Thread(target=generate, daemon=True)
-    thread.start()
-
-# ==================================================
 # PATHS
 # ==================================================
 THIS_DIR = Path(__file__).resolve().parent
@@ -1529,20 +1498,18 @@ def generate_calendar():
 
 @app.get("/api/download-calendar")
 def download_calendar():
-    """생성된 CalendarData.ts 다운로드"""
-    import os
+    """달력 데이터 다운로드 (순수 TypeScript 파일)"""
     try:
-        if not os.path.exists("CalendarData.ts"):
-            return {"success": False, "error": "아직 생성 중입니다. 5분 후 다시 시도하세요."}
-        
         with open("CalendarData.ts", "r", encoding="utf-8") as f:
             content = f.read()
         
-        return {
-            "success": True, 
-            "size": len(content),
-            "lines": len(content.split('\n')),
-            "content": content  # 전체 내용 반환
-        }
+        # 순수 TypeScript 코드만 반환 (JSON 감싸지 않음)
+        return Response(
+            content=content,
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": "attachment; filename=CalendarData.ts"}
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="CalendarData.ts not found. Run /api/generate-calendar first.")
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
