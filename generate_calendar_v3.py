@@ -32,7 +32,7 @@ def get_day_ganji(dt: date):
     }
 
 # 절기 데이터
-with open('jieqi_1900_2052.json', 'r', encoding='utf-8') as f:
+with open('data/jieqi_1900_2052.json', 'r', encoding='utf-8') as f:
     JIEQI_DATA = json.load(f)
 
 def get_jieqi_for_date(dt: date):
