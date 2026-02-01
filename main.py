@@ -1125,12 +1125,14 @@ def build_fortune_bundle(
     for d in range(1, days + 1):
         dd = date(cal_y, cal_m, d)
         dp = get_day_pillar(dd)
+        level, reason = calc_daily_level(chart, dp)
         daily_items.append({
             "date": dd.isoformat(),
             "ganji": dp["ganji"],
             "stem": dp["stem"],
             "branch": dp["branch"],
-            "level": calc_daily_level(chart, dp),
+            "level": level,
+            "reason": reason,
         })
 
 
@@ -1574,34 +1576,81 @@ def branch_relation_score(day_branch, origin_branches):
     return score
 
 def calc_daily_level(chart, day_pillar):
+    """일진 레벨과 이유를 계산하여 반환"""
     score = 50
+    reasons = []
 
+    # 십성 점수 계산
+    ten = None
+    ten_score = 0
     try:
         ten = get_ten_god(chart["day_stem"], day_pillar["stem"])
-        score += TEN_SCORE.get(ten, 0)
+        ten_score = TEN_SCORE.get(ten, 0)
+        score += ten_score
     except Exception:
         pass
 
+    # 오행 균형 점수 계산
+    elem = None
+    elem_score = 0
     try:
         elem = STEM_ELEMENT_MAP.get(day_pillar["stem"])
-        score += elem_balance_score(elem, chart.get("elements"))
+        elem_score = elem_balance_score(elem, chart.get("elements"))
+        score += elem_score
     except Exception:
         pass
 
+    # 지지 관계 점수 계산
+    branch_score = 0
+    chung_branches = []
     try:
-        score += branch_relation_score(
-            day_pillar["branch"],
-            chart.get("branches", [])
-        )
+        day_branch = day_pillar["branch"]
+        for b in chart.get("branches", []):
+            if BRANCH_CHUNG.get(day_branch) == b:
+                chung_branches.append(b)
+        branch_score = branch_relation_score(day_branch, chart.get("branches", []))
+        score += branch_score
     except Exception:
         pass
 
+    # 레벨 결정
     if score >= 80:
-        return "길일"
-    if score >= 65:
-        return "양호"
-    if score >= 45:
-        return "보통"
-    if score >= 30:
-        return "신중"
-    return "주의"
+        level = "길일"
+    elif score >= 65:
+        level = "양호"
+    elif score >= 45:
+        level = "보통"
+    elif score >= 30:
+        level = "신중"
+    else:
+        level = "주의"
+
+    # 길일/주의만 이유 생성
+    if level in ["길일", "주의"]:
+        elem_name_map = {
+            "wood": "목(木)", "fire": "화(火)", "earth": "토(土)", 
+            "metal": "금(金)", "water": "수(水)"
+        }
+        
+        # 십성 기여도
+        if ten and ten_score != 0:
+            if ten_score > 0:
+                reasons.append(f"오늘 {ten}이 작용해 안정적인 흐름입니다")
+            else:
+                reasons.append(f"오늘 {ten}이 작용해 주의가 필요합니다")
+        
+        # 오행 균형
+        if elem and elem_score != 0:
+            elem_kr = elem_name_map.get(elem, elem)
+            if elem_score > 0:
+                reasons.append(f"오늘 {elem_kr} 기운이 당신의 부족한 {elem_kr}을 보완합니다")
+            elif elem_score < 0:
+                reasons.append(f"오늘 {elem_kr} 기운이 과다해 불균형을 일으킬 수 있습니다")
+        
+        # 충돌
+        if chung_branches:
+            for b in chung_branches:
+                reasons.append(f"오늘 일진 {day_pillar['branch']}가 원국의 {b}와 충돌합니다")
+    
+    reason = " / ".join(reasons) if reasons else ""
+    return level, reason
