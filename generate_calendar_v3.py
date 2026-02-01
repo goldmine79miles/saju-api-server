@@ -246,7 +246,7 @@ export const CALENDAR_DATA: Record<number, Record<number, DayData[]>> = """
 output += json.dumps(calendar_data, ensure_ascii=False, indent=2)
 output += ";\n"
 
-with open('/mnt/user-data/outputs/CalendarData.ts', 'w', encoding='utf-8') as f:
+with open('CalendarData.ts', 'w', encoding='utf-8') as f:
     f.write(output)
 
 print("\n" + "="*50)
