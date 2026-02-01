@@ -1473,3 +1473,25 @@ def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
     output.write(final_pdf)
     final_pdf.seek(0)
     return final_pdf.read()
+
+@app.get("/api/generate-calendar")
+def generate_calendar():
+    """달력 데이터 생성"""
+    import subprocess
+    result = subprocess.run(
+        ["python3", "generate_calendar_v3.py"],
+        capture_output=True,
+        text=True,
+        cwd="."
+    )
+    
+    if result.returncode == 0:
+        # CalendarData.ts 파일 읽기
+        try:
+            with open("CalendarData.ts", "r", encoding="utf-8") as f:
+                content = f.read()
+            return {"success": True, "output": result.stdout, "file_size": len(content)}
+        except:
+            return {"success": True, "output": result.stdout, "note": "Check server logs"}
+    else:
+        return {"success": False, "error": result.stderr}
