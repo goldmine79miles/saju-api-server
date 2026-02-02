@@ -1051,6 +1051,7 @@ def build_fortune_bundle(
     jieqi_next_year: list | None = None,
     daily_month_year: int | None = None,
     daily_month: int | None = None,
+    chart: dict | None = None,
 ) -> dict:
     """
     Returns dict to be attached as response["fortune"].
@@ -1122,18 +1123,22 @@ def build_fortune_bundle(
         next_first = date(cal_y, cal_m + 1, 1)
     days = (next_first - first).days
     daily_items = []
-    for d in range(1, days + 1):
-        dd = date(cal_y, cal_m, d)
-        dp = get_day_pillar(dd)
-        level, reason = calc_daily_level(chart, dp)
-        daily_items.append({
-            "date": dd.isoformat(),
-            "ganji": dp["ganji"],
-            "stem": dp["stem"],
-            "branch": dp["branch"],
-            "level": level,
-            "reason": reason,
-        })
+    
+    # chart가 있을 때만 daily_items 생성 (개인화된 reason 포함)
+    if chart:
+        for d in range(1, days + 1):
+            dd = date(cal_y, cal_m, d)
+            dp = get_day_pillar(dd)
+            level, reason = calc_daily_level(chart, dp)
+            daily_items.append({
+                "date": dd.isoformat(),
+                "ganji": dp["ganji"],
+                "stem": dp["stem"],
+                "branch": dp["branch"],
+                "level": level,
+                "reason": reason,
+            })
+
 
 
     # --------------------------------------------------
@@ -1265,6 +1270,7 @@ def calc_saju(
             jieqi_next_year=jieqi_next,
             daily_month_year=2026,
             daily_month=2,
+            chart=pillars,
         )
     except Exception:
         fortune_bundle = {"daewoon": [], "yearly": {}, "monthly": {}, "daily": {}}
