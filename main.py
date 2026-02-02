@@ -1259,6 +1259,22 @@ def calc_saju(
     # --------------------------------------------------
     try:
         jieqi_next = get_jieqi_with_fallback(str(input_dt.year + 1))
+        
+        # calc_daily_level에 필요한 정보를 chart에 추가
+        elements_data = calculate_elements_ratio(pillars)
+        branches = []
+        for k in ["year", "month", "day", "hour"]:
+            b = pillars.get(k, {}).get("branch")
+            if b:
+                branches.append(b)
+        
+        chart_for_daily = {
+            **pillars,
+            "day_stem": day_stem,
+            "elements": elements_data,
+            "branches": branches,
+        }
+        
         fortune_bundle = build_fortune_bundle(
             input_dt=input_dt,
             solar_confirmed_dt=solar_confirmed,
@@ -1270,7 +1286,7 @@ def calc_saju(
             jieqi_next_year=jieqi_next,
             daily_month_year=2026,
             daily_month=2,
-            chart=pillars,
+            chart=chart_for_daily,
         )
     except Exception:
         fortune_bundle = {"daewoon": [], "yearly": {}, "monthly": {}, "daily": {}}
@@ -1596,9 +1612,8 @@ def calc_daily_level(chart, day_pillar):
         ten = get_ten_god(chart["day_stem"], day_pillar["stem"])
         ten_score = TEN_SCORE.get(ten, 0)
         score += ten_score * 3  # 가중치 3배
-        print(f"[CALC] ten={ten}, ten_score={ten_score}, after={score}")
-    except Exception as e:
-        print(f"[ERROR] ten: {e}")
+    except Exception:
+        pass
 
     # 오행 균형 점수 계산
     elem = None
@@ -1607,9 +1622,8 @@ def calc_daily_level(chart, day_pillar):
         elem = STEM_ELEMENT_MAP.get(day_pillar["stem"])
         elem_score = elem_balance_score(elem, chart.get("elements"))
         score += elem_score * 3  # 가중치 3배
-        print(f"[CALC] elem={elem}, elem_score={elem_score}, after={score}")
-    except Exception as e:
-        print(f"[ERROR] elem: {e}")
+    except Exception:
+        pass
 
     # 지지 관계 점수 계산
     branch_score = 0
@@ -1621,9 +1635,8 @@ def calc_daily_level(chart, day_pillar):
                 chung_branches.append(b)
         branch_score = branch_relation_score(day_branch, chart.get("branches", []))
         score += branch_score * 3  # 가중치 3배
-        print(f"[CALC] branch={branch_score}, after={score}")
-    except Exception as e:
-        print(f"[ERROR] branch: {e}")
+    except Exception:
+        pass
 
     # 레벨 결정
     if score >= 80:
