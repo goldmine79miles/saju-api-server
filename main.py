@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 import json
@@ -113,6 +114,15 @@ print("[BOOT] main.py LOADED ✅", os.path.abspath(__file__), flush=True)
 app = FastAPI(
     title="Saju API Server",
     version="1.9.0"
+)
+
+# CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://saju-baksa.com", "https://www.saju-baksa.com"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ==================================================
