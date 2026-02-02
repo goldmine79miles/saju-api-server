@@ -1636,16 +1636,27 @@ def calc_daily_level(chart, day_pillar):
 
     # 모든 레벨에 이유 생성 (프론트에서 길일/주의만 표시)
     
-    # 한글 변환 맵
-    stem_kr = {
-        "甲": "갑목", "乙": "을목", "丙": "병화", "丁": "정화", "戊": "무토",
-        "己": "기토", "庚": "경금", "辛": "신금", "壬": "임수", "癸": "계수"
+    # 60갑자 한글 맵
+    ganji_kr = {
+        "甲子": "갑자", "乙丑": "을축", "丙寅": "병인", "丁卯": "정묘", "戊辰": "무진",
+        "己巳": "기사", "庚午": "경오", "辛未": "신미", "壬申": "임신", "癸酉": "계유",
+        "甲戌": "갑술", "乙亥": "을해", "丙子": "병자", "丁丑": "정축", "戊寅": "무인",
+        "己卯": "기묘", "庚辰": "경진", "辛巳": "신사", "壬午": "임오", "癸未": "계미",
+        "甲申": "갑신", "乙酉": "을유", "丙戌": "병술", "丁亥": "정해", "戊子": "무자",
+        "己丑": "기축", "庚寅": "경인", "辛卯": "신묘", "壬辰": "임진", "癸巳": "계사",
+        "甲午": "갑오", "乙未": "을미", "丙申": "병신", "丁酉": "정유", "戊戌": "무술",
+        "己亥": "기해", "庚子": "경자", "辛丑": "신축", "壬寅": "임인", "癸卯": "계묘",
+        "甲辰": "갑진", "乙巳": "을사", "丙午": "병오", "丁未": "정미", "戊申": "무신",
+        "己酉": "기유", "庚戌": "경술", "辛亥": "신해", "壬子": "임자", "癸丑": "계축",
+        "甲寅": "갑인", "乙卯": "을묘", "丙辰": "병진", "丁巳": "정사", "戊午": "무오",
+        "己未": "기미", "庚申": "경신", "辛酉": "신유", "壬戌": "임술", "癸亥": "계해"
     }
-    branch_kr = {
-        "子": "자수(쥐)", "丑": "축토(소)", "寅": "인목(호랑이)", "卯": "묘목(토끼)",
-        "辰": "진토(용)", "巳": "사화(뱀)", "午": "오화(말)", "未": "미토(양)",
-        "申": "신금(원숭이)", "酉": "유금(닭)", "戌": "술토(개)", "亥": "해수(돼지)"
+    
+    branch_animal = {
+        "子": "쥐", "丑": "소", "寅": "호랑이", "卯": "토끼", "辰": "용", "巳": "뱀",
+        "午": "말", "未": "양", "申": "원숭이", "酉": "닭", "戌": "개", "亥": "돼지"
     }
+    
     elem_kr = {
         "wood": "나무", "fire": "불", "earth": "흙", "metal": "쇠", "water": "물"
     }
@@ -1654,47 +1665,48 @@ def calc_daily_level(chart, day_pillar):
     stem = day_pillar.get("stem", "")
     branch = day_pillar.get("branch", "")
     
-    # 일진 소개
-    stem_name = stem_kr.get(stem, stem)
-    branch_name = branch_kr.get(branch, branch)
-    intro = f"오늘은 {stem_name} {branch_name}의 날입니다."
+    # 일진 이름
+    ganji_name = ganji_kr.get(ganji, ganji)
+    animal_name = branch_animal.get(branch, "")
     
-    # 오행 설명
+    # 오행 이름
     elem = STEM_ELEMENT_MAP.get(stem)
-    elem_name = elem_kr.get(elem, elem) if elem else ""
-    elem_text = ""
+    elem_name = elem_kr.get(elem, "") if elem else ""
     
-    if elem and elem_score != 0:
-        chart_elem_ratio = chart.get("elements", {}).get(elem, {}).get("ratio", 0)
-        if elem_score > 0:  # 부족한 기운 보완
-            elem_text = f"오늘의 {elem_name} 기운이 당신 원국의 부족한 {elem_name} 기운을 보완해줍니다. 균형이 잡혀 안정적입니다."
-        elif elem_score < 0:  # 과한 기운
-            elem_text = f"원국에 {elem_name} 기운이 이미 강한데 오늘도 {elem_name} 기운이 더해져 과해질 수 있습니다. 균형 조절이 필요합니다."
-    elif elem:
-        elem_text = f"오늘은 {elem_name} 기운의 날입니다."
+    # 문장 구성
+    sentences = []
     
-    # 충돌 설명
-    chung_text = ""
+    # 1. 일진 소개
+    if animal_name:
+        sentences.append(f"오늘은 {ganji_name}({animal_name})의 날입니다.")
+    else:
+        sentences.append(f"오늘은 {ganji_name}의 날입니다.")
+    
+    # 2. 오행 설명 (elem_score 기반)
+    if elem and elem_name:
+        if elem_score > 0:
+            # 부족한 기운 보완 (긍정)
+            sentences.append(f"오늘의 {elem_name} 기운이 당신 원국에 부족한 {elem_name} 기운을 채워줍니다.")
+            sentences.append("균형이 잡혀 안정적인 흐름이 예상됩니다.")
+        elif elem_score < 0:
+            # 과한 기운 (부정)
+            sentences.append(f"당신 원국은 이미 {elem_name} 기운이 강한 편인데, 오늘도 {elem_name} 기운이 더해집니다.")
+            sentences.append("기운이 과해질 수 있으니 균형에 신경 쓰세요.")
+    
+    # 3. 지지 충돌 (chung_branches 기반)
     if chung_branches:
-        chung_names = [branch_kr.get(b, b) for b in chung_branches]
-        if len(chung_names) == 1:
-            chung_text = f"오늘의 {branch_name}가 원국의 {chung_names[0]}와 충돌합니다. 변동과 긴장이 예상되니 신중하게 행동하세요."
-        else:
-            chung_text = f"오늘의 {branch_name}가 원국의 {', '.join(chung_names)}와 충돌합니다. 여러 충돌이 있어 특히 주의가 필요합니다."
+        for b in chung_branches:
+            b_animal = branch_animal.get(b, b)
+            sentences.append(f"오늘의 {animal_name} 지지가 당신 원국의 {b_animal} 지지와 충돌합니다.")
+        sentences.append("변동이나 긴장 상황이 생길 수 있으니 신중하게 대응하세요.")
     
-    # 최종 조합
-    parts = [intro]
-    if elem_text:
-        parts.append(elem_text)
-    if chung_text:
-        parts.append(chung_text)
-    
-    # 길일/주의에 따른 마무리 문구
-    if level == "길일" and not chung_branches:
-        parts.append("좋은 흐름이 있는 날입니다.")
+    # 4. 레벨에 따른 종합 평가
+    if level == "길일":
+        if not chung_branches and elem_score >= 0:
+            sentences.append("좋은 기운이 흐르는 길한 날입니다.")
     elif level == "주의":
-        if not chung_text:  # 충돌 설명이 없으면
-            parts.append("조심스럽게 행동하는 것이 좋습니다.")
+        if not chung_branches and elem_score < 0:
+            sentences.append("조심스럽게 행동하는 것이 좋습니다.")
     
-    reason = " ".join(parts)
+    reason = " ".join(sentences)
     return level, reason
