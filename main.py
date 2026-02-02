@@ -1112,30 +1112,33 @@ def build_fortune_bundle(
     # Daily calendar for 2026-2028 (3년 전체)
     daily_items = []
     
-    # chart가 있을 때만 daily_items 생성 (개인화된 reason 포함)
+    # 현재 달만 일진 생성 (빠른 응답)
+    daily_items = []
+    
     if chart:
-        for year in [2026, 2027, 2028]:
-            for month in range(1, 13):
-                first = date(year, month, 1)
-                # 다음 달 첫날
-                if month == 12:
-                    next_first = date(year + 1, 1, 1)
-                else:
-                    next_first = date(year, month + 1, 1)
-                days = (next_first - first).days
-                
-                for d in range(1, days + 1):
-                    dd = date(year, month, d)
-                    dp = get_day_pillar(dd)
-                    level, reason = calc_daily_level(chart, dp)
-                    daily_items.append({
-                        "date": dd.isoformat(),
-                        "ganji": dp["ganji"],
-                        "stem": dp["stem"],
-                        "branch": dp["branch"],
-                        "level": level,
-                        "reason": reason,
-                    })
+        now_kst = datetime.now(tz=KST)
+        year = now_kst.year
+        month = now_kst.month
+        
+        first = date(year, month, 1)
+        if month == 12:
+            next_first = date(year + 1, 1, 1)
+        else:
+            next_first = date(year, month + 1, 1)
+        days = (next_first - first).days
+        
+        for d in range(1, days + 1):
+            dd = date(year, month, d)
+            dp = get_day_pillar(dd)
+            level, reason = calc_daily_level(chart, dp)
+            daily_items.append({
+                "date": dd.isoformat(),
+                "ganji": dp["ganji"],
+                "stem": dp["stem"],
+                "branch": dp["branch"],
+                "level": level,
+                "reason": reason,
+                })
 
 
 
@@ -1338,6 +1341,122 @@ from reportlab.lib.utils import ImageReader
 from io import BytesIO
 import requests
 import cairosvg
+
+@app.get("/api/saju/daily")
+def get_daily_level(
+    birth: str = Query(...),
+    calendar: str = Query("solar"),
+    birth_time: str = Query("unknown"),
+    gender: str = Query("unknown"),
+    is_leap_month: bool = Query(False),
+    year: int = Query(...),
+    month: int = Query(...),
+):
+    """특정 년월의 일진 레벨 반환 (달 바뀔 때 호출)"""
+    from fastapi import HTTPException
+    
+    # 원국 계산 (calc_saju와 동일한 로직)
+    try:
+        # 1) 날짜 파싱
+        try:
+            parts = birth.split("-")
+            if len(parts) != 3:
+                raise ValueError("Invalid date format")
+            b_y, b_m, b_d = int(parts[0]), int(parts[1]), int(parts[2])
+        except Exception:
+            raise HTTPException(400, "Invalid birth date format")
+        
+        # 2) 음력/양력 처리
+        if calendar == "lunar":
+            from lunar_python import Lunar, Solar
+            lunar = Lunar.fromYmd(b_y, b_m, b_d)
+            if is_leap_month:
+                lunar.setLeap(True)
+            solar = lunar.getSolar()
+            solar_confirmed = date(solar.getYear(), solar.getMonth(), solar.getDay())
+        else:
+            solar_confirmed = date(b_y, b_m, b_d)
+        
+        # 3) 시간 파싱
+        has_time = birth_time and birth_time.strip().lower() not in ("unknown", "모름", "")
+        if has_time:
+            try:
+                hm = birth_time.split(":")
+                hour_int = int(hm[0])
+                minute_int = int(hm[1]) if len(hm) > 1 else 0
+            except Exception:
+                hour_int, minute_int = 0, 0
+                has_time = False
+        else:
+            hour_int, minute_int = 0, 0
+        
+        # 4) KST 시간 계산
+        input_dt = datetime(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day, hour_int, minute_int, tzinfo=KST)
+        calc_dt = input_dt - timedelta(minutes=32)
+        
+        # 5) 사주 계산
+        jieqi_this = get_jieqi_with_fallback(str(input_dt.year))
+        jieqi_prev = get_jieqi_with_fallback(str(input_dt.year - 1))
+        
+        year_pillar = get_year_pillar(input_dt, jieqi_this, jieqi_prev)
+        day_pillar = get_day_pillar(solar_confirmed)
+        month_pillar = get_month_pillar(input_dt, year_pillar, jieqi_this, jieqi_prev)
+        hour_pillar = get_hour_pillar(day_pillar, calc_dt.hour, calc_dt.minute) if has_time else None
+        
+        pillars = {"year": year_pillar, "month": month_pillar, "day": day_pillar, "hour": hour_pillar}
+        day_stem = (day_pillar or {}).get("stem", "")
+        
+        for _k in ("year", "month", "day", "hour"):
+            _p = pillars.get(_k)
+            if _p:
+                enrich_pillar(_p, day_stem)
+        
+        # 6) chart 생성
+        elements_data = calculate_elements_ratio(pillars)
+        branches = []
+        for k in ["year", "month", "day", "hour"]:
+            b = pillars.get(k, {}).get("branch")
+            if b:
+                branches.append(b)
+        
+        chart = {
+            **pillars,
+            "day_stem": day_stem,
+            "elements": elements_data,
+            "branches": branches,
+        }
+        
+        # 7) 요청한 년월의 일진 생성
+        daily_items = []
+        first = date(year, month, 1)
+        if month == 12:
+            next_first = date(year + 1, 1, 1)
+        else:
+            next_first = date(year, month + 1, 1)
+        days = (next_first - first).days
+        
+        for d in range(1, days + 1):
+            dd = date(year, month, d)
+            dp = get_day_pillar(dd)
+            level, reason = calc_daily_level(chart, dp)
+            daily_items.append({
+                "date": dd.isoformat(),
+                "ganji": dp["ganji"],
+                "stem": dp["stem"],
+                "branch": dp["branch"],
+                "level": level,
+                "reason": reason,
+            })
+        
+        return {"daily_items": daily_items}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] get_daily_level: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Internal error: {str(e)}")
 
 @app.get("/api/pdf/generate")
 async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
