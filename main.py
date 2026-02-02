@@ -799,25 +799,6 @@ def gregorian_to_jdn(y, m, d):
 
 def get_day_pillar(dt: date):
     idx = (gregorian_to_jdn(dt.year, dt.month, dt.day) + DAY_PILLAR_JDN_OFFSET) % 60
-
-    # --------------------------------------------------
-    # 4) Fortune bundle (대운/연운/월운/일진) — added only
-    # --------------------------------------------------
-    try:
-        jieqi_next = get_jieqi_with_fallback(str(input_dt.year + 1))
-        fortune_bundle = build_fortune_bundle(
-            input_dt=input_dt,
-            solar_confirmed_dt=solar_confirmed,
-            year_pillar=year_pillar,
-            month_pillar=month_pillar,
-            gender=gender,
-            jieqi_this_year=jieqi_this,
-            jieqi_prev_year=jieqi_prev,
-            jieqi_next_year=jieqi_next,
-        )
-    except Exception:
-        fortune_bundle = {"daewoon": [], "yearly": {}, "monthly": {}, "daily": {}}
-
     return {
         "stem": STEMS[idx % 10],
         "branch": BRANCHES[idx % 12],
@@ -827,25 +808,6 @@ def get_day_pillar(dt: date):
 
 def get_year_pillar(year: int):
     idx = (year - 1984) % 60
-
-    # --------------------------------------------------
-    # 4) Fortune bundle (대운/연운/월운/일진) — added only
-    # --------------------------------------------------
-    try:
-        jieqi_next = get_jieqi_with_fallback(str(input_dt.year + 1))
-        fortune_bundle = build_fortune_bundle(
-            input_dt=input_dt,
-            solar_confirmed_dt=solar_confirmed,
-            year_pillar=year_pillar,
-            month_pillar=month_pillar,
-            gender=gender,
-            jieqi_this_year=jieqi_this,
-            jieqi_prev_year=jieqi_prev,
-            jieqi_next_year=jieqi_next,
-        )
-    except Exception:
-        fortune_bundle = {"daewoon": [], "yearly": {}, "monthly": {}, "daily": {}}
-
     return {
         "stem": STEMS[idx % 10],
         "branch": BRANCHES[idx % 12],
