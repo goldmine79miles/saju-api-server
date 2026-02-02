@@ -1635,39 +1635,66 @@ def calc_daily_level(chart, day_pillar):
         level = "주의"
 
     # 모든 레벨에 이유 생성 (프론트에서 길일/주의만 표시)
-    elem_name_map = {
-        "wood": "목(木)", "fire": "화(火)", "earth": "토(土)", 
-        "metal": "금(金)", "water": "수(水)"
+    
+    # 한글 변환 맵
+    stem_kr = {
+        "甲": "갑목", "乙": "을목", "丙": "병화", "丁": "정화", "戊": "무토",
+        "己": "기토", "庚": "경금", "辛": "신금", "壬": "임수", "癸": "계수"
+    }
+    branch_kr = {
+        "子": "자수(쥐)", "丑": "축토(소)", "寅": "인목(호랑이)", "卯": "묘목(토끼)",
+        "辰": "진토(용)", "巳": "사화(뱀)", "午": "오화(말)", "未": "미토(양)",
+        "申": "신금(원숭이)", "酉": "유금(닭)", "戌": "술토(개)", "亥": "해수(돼지)"
+    }
+    elem_kr = {
+        "wood": "나무", "fire": "불", "earth": "흙", "metal": "쇠", "water": "물"
     }
     
-    # 1. 일진 간지 정보 (항상 표시)
-    ganji_str = day_pillar.get("ganji", "")
-    if ganji_str:
-        reasons.append(f"오늘은 {ganji_str}일입니다")
+    ganji = day_pillar.get("ganji", "")
+    stem = day_pillar.get("stem", "")
+    branch = day_pillar.get("branch", "")
     
-    # 2. 십성 정보 (항상 표시)
-    if ten:
-        if ten_score > 0:
-            reasons.append(f"{ten}이 작용해 안정적인 흐름입니다")
-        elif ten_score < 0:
-            reasons.append(f"{ten}이 작용해 긴장감이 있는 날입니다")
-        else:
-            reasons.append(f"{ten}의 기운이 작용합니다")
+    # 일진 소개
+    stem_name = stem_kr.get(stem, stem)
+    branch_name = branch_kr.get(branch, branch)
+    intro = f"오늘은 {stem_name} {branch_name}의 날입니다."
     
-    # 3. 오행 균형 (항상 표시)
-    if elem:
-        elem_kr = elem_name_map.get(elem, elem)
-        if elem_score > 0:
-            reasons.append(f"{elem_kr} 기운이 부족한 {elem_kr}을 보완합니다")
-        elif elem_score < 0:
-            reasons.append(f"{elem_kr} 기운이 과다해 균형 조정이 필요합니다")
-        else:
-            reasons.append(f"{elem_kr} 기운의 영향을 받습니다")
+    # 오행 설명
+    elem = STEM_ELEMENT_MAP.get(stem)
+    elem_name = elem_kr.get(elem, elem) if elem else ""
+    elem_text = ""
     
-    # 4. 충돌 정보 (있을 때만)
+    if elem and elem_score != 0:
+        chart_elem_ratio = chart.get("elements", {}).get(elem, {}).get("ratio", 0)
+        if elem_score > 0:  # 부족한 기운 보완
+            elem_text = f"오늘의 {elem_name} 기운이 당신 원국의 부족한 {elem_name} 기운을 보완해줍니다. 균형이 잡혀 안정적입니다."
+        elif elem_score < 0:  # 과한 기운
+            elem_text = f"원국에 {elem_name} 기운이 이미 강한데 오늘도 {elem_name} 기운이 더해져 과해질 수 있습니다. 균형 조절이 필요합니다."
+    elif elem:
+        elem_text = f"오늘은 {elem_name} 기운의 날입니다."
+    
+    # 충돌 설명
+    chung_text = ""
     if chung_branches:
-        for b in chung_branches:
-            reasons.append(f"일진 {day_pillar['branch']}가 원국 {b}와 충돌합니다")
+        chung_names = [branch_kr.get(b, b) for b in chung_branches]
+        if len(chung_names) == 1:
+            chung_text = f"오늘의 {branch_name}가 원국의 {chung_names[0]}와 충돌합니다. 변동과 긴장이 예상되니 신중하게 행동하세요."
+        else:
+            chung_text = f"오늘의 {branch_name}가 원국의 {', '.join(chung_names)}와 충돌합니다. 여러 충돌이 있어 특히 주의가 필요합니다."
     
-    reason = " / ".join(reasons) if reasons else ""
+    # 최종 조합
+    parts = [intro]
+    if elem_text:
+        parts.append(elem_text)
+    if chung_text:
+        parts.append(chung_text)
+    
+    # 길일/주의에 따른 마무리 문구
+    if level == "길일" and not chung_branches:
+        parts.append("좋은 흐름이 있는 날입니다.")
+    elif level == "주의":
+        if not chung_text:  # 충돌 설명이 없으면
+            parts.append("조심스럽게 행동하는 것이 좋습니다.")
+    
+    reason = " ".join(parts)
     return level, reason
