@@ -1634,41 +1634,40 @@ def calc_daily_level(chart, day_pillar):
     else:
         level = "주의"
 
-    # 길일/주의만 이유 생성
-    if level in ["길일", "주의"]:
-        elem_name_map = {
-            "wood": "목(木)", "fire": "화(火)", "earth": "토(土)", 
-            "metal": "금(金)", "water": "수(水)"
-        }
-        
-        # 1. 일진 간지 정보 (항상 표시)
-        ganji_str = day_pillar.get("ganji", "")
-        if ganji_str:
-            reasons.append(f"오늘은 {ganji_str}일입니다")
-        
-        # 2. 십성 정보 (항상 표시)
-        if ten:
-            if ten_score > 0:
-                reasons.append(f"{ten}이 작용해 안정적인 흐름입니다")
-            elif ten_score < 0:
-                reasons.append(f"{ten}이 작용해 긴장감이 있는 날입니다")
-            else:
-                reasons.append(f"{ten}의 기운이 작용합니다")
-        
-        # 3. 오행 균형 (항상 표시)
-        if elem:
-            elem_kr = elem_name_map.get(elem, elem)
-            if elem_score > 0:
-                reasons.append(f"{elem_kr} 기운이 부족한 {elem_kr}을 보완합니다")
-            elif elem_score < 0:
-                reasons.append(f"{elem_kr} 기운이 과다해 균형 조정이 필요합니다")
-            else:
-                reasons.append(f"{elem_kr} 기운의 영향을 받습니다")
-        
-        # 4. 충돌 정보 (있을 때만)
-        if chung_branches:
-            for b in chung_branches:
-                reasons.append(f"일진 {day_pillar['branch']}가 원국 {b}와 충돌합니다")
+    # 모든 레벨에 이유 생성 (프론트에서 길일/주의만 표시)
+    elem_name_map = {
+        "wood": "목(木)", "fire": "화(火)", "earth": "토(土)", 
+        "metal": "금(金)", "water": "수(水)"
+    }
+    
+    # 1. 일진 간지 정보 (항상 표시)
+    ganji_str = day_pillar.get("ganji", "")
+    if ganji_str:
+        reasons.append(f"오늘은 {ganji_str}일입니다")
+    
+    # 2. 십성 정보 (항상 표시)
+    if ten:
+        if ten_score > 0:
+            reasons.append(f"{ten}이 작용해 안정적인 흐름입니다")
+        elif ten_score < 0:
+            reasons.append(f"{ten}이 작용해 긴장감이 있는 날입니다")
+        else:
+            reasons.append(f"{ten}의 기운이 작용합니다")
+    
+    # 3. 오행 균형 (항상 표시)
+    if elem:
+        elem_kr = elem_name_map.get(elem, elem)
+        if elem_score > 0:
+            reasons.append(f"{elem_kr} 기운이 부족한 {elem_kr}을 보완합니다")
+        elif elem_score < 0:
+            reasons.append(f"{elem_kr} 기운이 과다해 균형 조정이 필요합니다")
+        else:
+            reasons.append(f"{elem_kr} 기운의 영향을 받습니다")
+    
+    # 4. 충돌 정보 (있을 때만)
+    if chung_branches:
+        for b in chung_branches:
+            reasons.append(f"일진 {day_pillar['branch']}가 원국 {b}와 충돌합니다")
     
     reason = " / ".join(reasons) if reasons else ""
     return level, reason
