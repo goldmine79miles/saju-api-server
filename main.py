@@ -1111,33 +1111,33 @@ def build_fortune_bundle(
             "ganji": ms + b,
         })
 
-    # Daily calendar for requested month or current KST month
-    now_kst = datetime.now(tz=KST)
-    cal_y = int(daily_month_year or now_kst.year)
-    cal_m = int(daily_month or now_kst.month)
-    first = date(cal_y, cal_m, 1)
-    # next month
-    if cal_m == 12:
-        next_first = date(cal_y + 1, 1, 1)
-    else:
-        next_first = date(cal_y, cal_m + 1, 1)
-    days = (next_first - first).days
+    # Daily calendar for 2026-2028 (3년 전체)
     daily_items = []
     
     # chart가 있을 때만 daily_items 생성 (개인화된 reason 포함)
     if chart:
-        for d in range(1, days + 1):
-            dd = date(cal_y, cal_m, d)
-            dp = get_day_pillar(dd)
-            level, reason = calc_daily_level(chart, dp)
-            daily_items.append({
-                "date": dd.isoformat(),
-                "ganji": dp["ganji"],
-                "stem": dp["stem"],
-                "branch": dp["branch"],
-                "level": level,
-                "reason": reason,
-            })
+        for year in [2026, 2027, 2028]:
+            for month in range(1, 13):
+                first = date(year, month, 1)
+                # 다음 달 첫날
+                if month == 12:
+                    next_first = date(year + 1, 1, 1)
+                else:
+                    next_first = date(year, month + 1, 1)
+                days = (next_first - first).days
+                
+                for d in range(1, days + 1):
+                    dd = date(year, month, d)
+                    dp = get_day_pillar(dd)
+                    level, reason = calc_daily_level(chart, dp)
+                    daily_items.append({
+                        "date": dd.isoformat(),
+                        "ganji": dp["ganji"],
+                        "stem": dp["stem"],
+                        "branch": dp["branch"],
+                        "level": level,
+                        "reason": reason,
+                    })
 
 
 
@@ -1284,8 +1284,6 @@ def calc_saju(
             jieqi_this_year=jieqi_this,
             jieqi_prev_year=jieqi_prev,
             jieqi_next_year=jieqi_next,
-            daily_month_year=2026,
-            daily_month=2,
             chart=chart_for_daily,
         )
     except Exception:
