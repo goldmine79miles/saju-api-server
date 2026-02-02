@@ -1696,9 +1696,9 @@ def calc_daily_level(chart, day_pillar):
             negative_reasons.append(f"오늘의 {animal_name} 지지가 원국의 {b_animal} 지지와 충돌합니다")
     
     # 십성 분석 (ten_score 활용)
-    if ten_score > 10:
+    if ten_score >= 6:
         positive_reasons.append("일진의 십성이 당신에게 유리하게 작용합니다")
-    elif ten_score < -10:
+    elif ten_score <= -6:
         negative_reasons.append("일진의 십성이 긴장감을 주는 날입니다")
     
     # 지지 합 (branch_score가 양수인데 충돌이 아닌 경우)
@@ -1708,29 +1708,31 @@ def calc_daily_level(chart, day_pillar):
     # 3. 길일/주의 결과에 따라 설명 조합
     if level == "길일":
         if positive_reasons:
-            sentences.append(". ".join(positive_reasons) + ".")
+            sentences.append(" ".join(positive_reasons) + ".")
             sentences.append("좋은 기운이 흐르는 길한 날입니다.")
         else:
+            # 점수가 높은데 이유를 못 찾은 경우
             sentences.append("전반적으로 무난하고 안정적인 기운이 흐릅니다.")
             sentences.append("좋은 날입니다.")
     
     elif level == "주의":
         if negative_reasons:
-            sentences.append(". ".join(negative_reasons) + ".")
+            sentences.append(" ".join(negative_reasons) + ".")
             sentences.append("변동이나 긴장 상황에 신중하게 대응하세요.")
         else:
+            # 점수가 낮은데 이유를 못 찾은 경우
             sentences.append("전반적으로 기운이 약한 편입니다.")
             sentences.append("조심스럽게 행동하는 것이 좋습니다.")
     
     else:  # 양호, 보통, 신중
         # 긍정/부정 요소가 있으면 둘 다 설명
         if positive_reasons and negative_reasons:
-            sentences.append(". ".join(positive_reasons) + ".")
-            sentences.append("다만, " + ". ".join(negative_reasons) + ".")
+            sentences.append(" ".join(positive_reasons) + ".")
+            sentences.append("다만, " + " ".join(negative_reasons) + ".")
         elif positive_reasons:
-            sentences.append(". ".join(positive_reasons) + ".")
+            sentences.append(" ".join(positive_reasons) + ".")
         elif negative_reasons:
-            sentences.append(". ".join(negative_reasons) + ".")
+            sentences.append(" ".join(negative_reasons) + ".")
     
     reason = " ".join(sentences)
     return level, reason
