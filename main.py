@@ -1049,8 +1049,6 @@ def build_fortune_bundle(
     jieqi_this_year: list,
     jieqi_prev_year: list | None = None,
     jieqi_next_year: list | None = None,
-    daily_month_year: int | None = None,
-    daily_month: int | None = None,
     chart: dict | None = None,
 ) -> dict:
     """
@@ -1286,7 +1284,10 @@ def calc_saju(
             jieqi_next_year=jieqi_next,
             chart=chart_for_daily,
         )
-    except Exception:
+    except Exception as e:
+        print(f"[ERROR] build_fortune_bundle failed: {e}")
+        import traceback
+        traceback.print_exc()
         fortune_bundle = {"daewoon": [], "yearly": {}, "monthly": {}, "daily": {}}
 
     return {
