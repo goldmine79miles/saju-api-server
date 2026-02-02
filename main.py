@@ -1370,7 +1370,7 @@ def get_daily_level(
         jieqi_this = get_jieqi_with_fallback(str(input_dt.year))
         jieqi_prev = get_jieqi_with_fallback(str(input_dt.year - 1))
         
-        year_pillar = get_year_pillar(input_dt, jieqi_this, jieqi_prev)
+        year_pillar = get_year_pillar(input_dt.year)
         day_pillar = get_day_pillar(solar_confirmed)
         month_pillar = get_month_pillar(input_dt, year_pillar, jieqi_this, jieqi_prev)
         hour_pillar = get_hour_pillar(day_pillar, calc_dt.hour, calc_dt.minute) if has_time else None
