@@ -1707,22 +1707,36 @@ def calc_daily_level(chart, day_pillar):
     
     # 3. 길일/주의 결과에 따라 설명 조합
     if level == "길일":
-        if positive_reasons:
-            sentences.append(" ".join(positive_reasons) + ".")
-            sentences.append("좋은 기운이 흐르는 길한 날입니다.")
-        else:
-            # 점수가 높은데 이유를 못 찾은 경우
-            sentences.append("전반적으로 무난하고 안정적인 기운이 흐릅니다.")
-            sentences.append("좋은 날입니다.")
+        # 이유가 없으면 점수 다시 분석해서 추가
+        if not positive_reasons:
+            if ten_score > 0:
+                positive_reasons.append(f"일진의 십성이 당신에게 유리하게 작용합니다")
+            if elem_score > 0:
+                positive_reasons.append(f"오늘의 {elem_name} 기운이 부족한 {elem_name} 기운을 채워줍니다")
+            if branch_score > 0:
+                positive_reasons.append("일진 지지가 원국과 조화롭게 어우러집니다")
+            # 그래도 없으면 (기본 50점에서 높은 점수)
+            if not positive_reasons:
+                positive_reasons.append(f"일진 {ganji_name}이 전반적으로 원국과 좋은 흐름을 만듭니다")
+        
+        sentences.append(" ".join(positive_reasons) + ".")
+        sentences.append("좋은 기운이 흐르는 길한 날입니다.")
     
     elif level == "주의":
-        if negative_reasons:
-            sentences.append(" ".join(negative_reasons) + ".")
-            sentences.append("변동이나 긴장 상황에 신중하게 대응하세요.")
-        else:
-            # 점수가 낮은데 이유를 못 찾은 경우
-            sentences.append("전반적으로 기운이 약한 편입니다.")
-            sentences.append("조심스럽게 행동하는 것이 좋습니다.")
+        # 이유가 없으면 점수 다시 분석해서 추가
+        if not negative_reasons:
+            if ten_score < 0:
+                negative_reasons.append("일진의 십성이 긴장감을 주는 날입니다")
+            if elem_score < 0:
+                negative_reasons.append(f"당신 원국에 {elem_name} 기운이 강한데 오늘도 더해져 과해집니다")
+            if branch_score < 0:
+                negative_reasons.append("일진 지지가 원국과 불편한 관계를 형성합니다")
+            # 그래도 없으면 (기본 50점에서 낮은 점수)
+            if not negative_reasons:
+                negative_reasons.append(f"일진 {ganji_name}이 전반적으로 원국과 약한 흐름을 만듭니다")
+        
+        sentences.append(" ".join(negative_reasons) + ".")
+        sentences.append("변동이나 긴장 상황에 신중하게 대응하세요.")
     
     else:  # 양호, 보통, 신중
         # 긍정/부정 요소가 있으면 둘 다 설명
