@@ -1623,16 +1623,17 @@ def calc_daily_level(chart, day_pillar):
         pass
 
     # 레벨 결정
-    if score >= 80:
+    if score >= 66:
         level = "길일"
-    elif score >= 65:
+    elif score >= 56:
         level = "양호"
     elif score >= 45:
         level = "보통"
-    elif score >= 30:
+    elif score >= 34:
         level = "신중"
     else:
         level = "주의"
+
 
     # 모든 레벨에 이유 생성 (프론트에서 길일/주의만 표시)
     
