@@ -1793,15 +1793,15 @@ def calc_daily_level(chart, day_pillar):
     
     # 오행 분석
     if elem_score > 0:
-        positive_reasons.append(f"오늘의 {elem_name} 기운이 당신 원국에 부족한 {elem_name} 기운을 채워주어 균형이 좋아집니다")
+        positive_reasons.append(f"오늘의 {elem_name} 기운이 당신 사주에 부족한 {elem_name} 기운을 채워주어 균형이 좋아집니다")
     elif elem_score < 0:
-        negative_reasons.append(f"당신 원국에 {elem_name} 기운이 이미 강한데 오늘도 {elem_name} 기운이 더해져 과해질 수 있습니다")
+        negative_reasons.append(f"당신 사주에 {elem_name} 기운이 이미 강한 편인데 오늘도 {elem_name} 기운이 더해져 과해질 수 있습니다")
     
     # 지지 충돌
     if chung_branches:
         for b in chung_branches:
             b_animal = branch_animal.get(b, b)
-            negative_reasons.append(f"오늘의 {animal_name} 지지가 원국의 {b_animal} 지지와 충돌합니다")
+            negative_reasons.append(f"오늘의 {animal_name}({branch})는 사주에 있는 {b_animal}({b})와 충을 이루는 날입니다")
     
     # 십성 분석 (ten_score 활용)
     if ten_score >= 6:
