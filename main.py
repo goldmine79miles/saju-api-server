@@ -1595,7 +1595,7 @@ def calc_daily_level(chart, day_pillar):
     try:
         ten = get_ten_god(chart["day_stem"], day_pillar["stem"])
         ten_score = TEN_SCORE.get(ten, 0)
-        score += ten_score
+        score += ten_score * 3  # 가중치 3배
     except Exception:
         pass
 
@@ -1605,7 +1605,7 @@ def calc_daily_level(chart, day_pillar):
     try:
         elem = STEM_ELEMENT_MAP.get(day_pillar["stem"])
         elem_score = elem_balance_score(elem, chart.get("elements"))
-        score += elem_score
+        score += elem_score * 3  # 가중치 3배
     except Exception:
         pass
 
@@ -1618,21 +1618,22 @@ def calc_daily_level(chart, day_pillar):
             if BRANCH_CHUNG.get(day_branch) == b:
                 chung_branches.append(b)
         branch_score = branch_relation_score(day_branch, chart.get("branches", []))
-        score += branch_score
+        score += branch_score * 3  # 가중치 3배
     except Exception:
         pass
 
     # 레벨 결정
-    if score >= 66:
+    if score >= 80:
         level = "길일"
-    elif score >= 56:
+    elif score >= 60:
         level = "양호"
-    elif score >= 45:
+    elif score >= 40:
         level = "보통"
-    elif score >= 34:
+    elif score >= 30:
         level = "신중"
     else:
         level = "주의"
+
 
 
     # 모든 레벨에 이유 생성 (프론트에서 길일/주의만 표시)
