@@ -1164,7 +1164,7 @@ def build_fortune_bundle(
         "daewoon": daewoon,
         "yearly": {"range": {"from_year": y_from, "to_year": y_to}, "items": yearly_items},
         "monthly": {"year": monthly_year, "items": monthly_items},
-        "daily": {"year": cal_y, "month": cal_m, "items": daily_items},
+        "daily": {"items": daily_items},
     }
 
 
