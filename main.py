@@ -1665,11 +1665,8 @@ def calc_daily_level(chart, day_pillar):
     stem = day_pillar.get("stem", "")
     branch = day_pillar.get("branch", "")
     
-    # 일진 이름
     ganji_name = ganji_kr.get(ganji, ganji)
     animal_name = branch_animal.get(branch, "")
-    
-    # 오행 이름
     elem = STEM_ELEMENT_MAP.get(stem)
     elem_name = elem_kr.get(elem, "") if elem else ""
     
@@ -1682,31 +1679,58 @@ def calc_daily_level(chart, day_pillar):
     else:
         sentences.append(f"오늘은 {ganji_name}의 날입니다.")
     
-    # 2. 오행 설명 (elem_score 기반)
-    if elem and elem_name:
-        if elem_score > 0:
-            # 부족한 기운 보완 (긍정)
-            sentences.append(f"오늘의 {elem_name} 기운이 당신 원국에 부족한 {elem_name} 기운을 채워줍니다.")
-            sentences.append("균형이 잡혀 안정적인 흐름이 예상됩니다.")
-        elif elem_score < 0:
-            # 과한 기운 (부정)
-            sentences.append(f"당신 원국은 이미 {elem_name} 기운이 강한 편인데, 오늘도 {elem_name} 기운이 더해집니다.")
-            sentences.append("기운이 과해질 수 있으니 균형에 신경 쓰세요.")
+    # 2. 레벨 중심으로 이유 설명
+    positive_reasons = []  # 긍정 요소
+    negative_reasons = []  # 부정 요소
     
-    # 3. 지지 충돌 (chung_branches 기반)
+    # 오행 분석
+    if elem_score > 0:
+        positive_reasons.append(f"오늘의 {elem_name} 기운이 당신 원국에 부족한 {elem_name} 기운을 채워주어 균형이 좋아집니다")
+    elif elem_score < 0:
+        negative_reasons.append(f"당신 원국에 {elem_name} 기운이 이미 강한데 오늘도 {elem_name} 기운이 더해져 과해질 수 있습니다")
+    
+    # 지지 충돌
     if chung_branches:
         for b in chung_branches:
             b_animal = branch_animal.get(b, b)
-            sentences.append(f"오늘의 {animal_name} 지지가 당신 원국의 {b_animal} 지지와 충돌합니다.")
-        sentences.append("변동이나 긴장 상황이 생길 수 있으니 신중하게 대응하세요.")
+            negative_reasons.append(f"오늘의 {animal_name} 지지가 원국의 {b_animal} 지지와 충돌합니다")
     
-    # 4. 레벨에 따른 종합 평가
+    # 십성 분석 (ten_score 활용)
+    if ten_score > 10:
+        positive_reasons.append("일진의 십성이 당신에게 유리하게 작용합니다")
+    elif ten_score < -10:
+        negative_reasons.append("일진의 십성이 긴장감을 주는 날입니다")
+    
+    # 지지 합 (branch_score가 양수인데 충돌이 아닌 경우)
+    if branch_score > 0 and not chung_branches:
+        positive_reasons.append("일진 지지가 원국과 조화롭게 어우러집니다")
+    
+    # 3. 길일/주의 결과에 따라 설명 조합
     if level == "길일":
-        if not chung_branches and elem_score >= 0:
+        if positive_reasons:
+            sentences.append(". ".join(positive_reasons) + ".")
             sentences.append("좋은 기운이 흐르는 길한 날입니다.")
+        else:
+            sentences.append("전반적으로 무난하고 안정적인 기운이 흐릅니다.")
+            sentences.append("좋은 날입니다.")
+    
     elif level == "주의":
-        if not chung_branches and elem_score < 0:
+        if negative_reasons:
+            sentences.append(". ".join(negative_reasons) + ".")
+            sentences.append("변동이나 긴장 상황에 신중하게 대응하세요.")
+        else:
+            sentences.append("전반적으로 기운이 약한 편입니다.")
             sentences.append("조심스럽게 행동하는 것이 좋습니다.")
+    
+    else:  # 양호, 보통, 신중
+        # 긍정/부정 요소가 있으면 둘 다 설명
+        if positive_reasons and negative_reasons:
+            sentences.append(". ".join(positive_reasons) + ".")
+            sentences.append("다만, " + ". ".join(negative_reasons) + ".")
+        elif positive_reasons:
+            sentences.append(". ".join(positive_reasons) + ".")
+        elif negative_reasons:
+            sentences.append(". ".join(negative_reasons) + ".")
     
     reason = " ".join(sentences)
     return level, reason
