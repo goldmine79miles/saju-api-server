@@ -1596,8 +1596,9 @@ def calc_daily_level(chart, day_pillar):
         ten = get_ten_god(chart["day_stem"], day_pillar["stem"])
         ten_score = TEN_SCORE.get(ten, 0)
         score += ten_score * 3  # 가중치 3배
-    except Exception:
-        pass
+        print(f"[CALC] ten={ten}, ten_score={ten_score}, after={score}")
+    except Exception as e:
+        print(f"[ERROR] ten: {e}")
 
     # 오행 균형 점수 계산
     elem = None
@@ -1606,8 +1607,9 @@ def calc_daily_level(chart, day_pillar):
         elem = STEM_ELEMENT_MAP.get(day_pillar["stem"])
         elem_score = elem_balance_score(elem, chart.get("elements"))
         score += elem_score * 3  # 가중치 3배
-    except Exception:
-        pass
+        print(f"[CALC] elem={elem}, elem_score={elem_score}, after={score}")
+    except Exception as e:
+        print(f"[ERROR] elem: {e}")
 
     # 지지 관계 점수 계산
     branch_score = 0
@@ -1619,8 +1621,9 @@ def calc_daily_level(chart, day_pillar):
                 chung_branches.append(b)
         branch_score = branch_relation_score(day_branch, chart.get("branches", []))
         score += branch_score * 3  # 가중치 3배
-    except Exception:
-        pass
+        print(f"[CALC] branch={branch_score}, after={score}")
+    except Exception as e:
+        print(f"[ERROR] branch: {e}")
 
     # 레벨 결정
     if score >= 80:
