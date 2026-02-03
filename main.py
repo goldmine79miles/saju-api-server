@@ -1041,7 +1041,7 @@ def build_fortune_bundle(
     base_ganji = (month_pillar or {}).get("ganji", "")
     daewoon = []
     for i in range(10):
-        step = i if forward else -i
+        step = (i + 1) if forward else -(i + 1)
         ganji = _sexagenary_shift(base_ganji, step)
         from_age = start_age + i * 10
         to_age = from_age + 9
