@@ -1858,3 +1858,203 @@ def calc_daily_level(chart, day_pillar):
     
     reason = " ".join(sentences)
     return level, reason
+
+
+# ==================================================
+# LOVE FORTUNE CALENDAR (연애운 캘린더)
+# ==================================================
+
+# 천간합
+HEAVENLY_STEM_HARMONY_LOVE = {
+    "甲": "己", "己": "甲", "乙": "庚", "庚": "乙", "丙": "辛", 
+    "辛": "丙", "丁": "壬", "壬": "丁", "戊": "癸", "癸": "戊",
+}
+
+# 지지충
+EARTHLY_BRANCH_CLASH_LOVE = {
+    "子": "午", "午": "子", "丑": "未", "未": "丑", "寅": "申", 
+    "申": "寅", "卯": "酉", "酉": "卯", "辰": "戌", "戌": "辰", "巳": "亥", "亥": "巳",
+}
+
+# 도화살
+PEACH_BLOSSOM_BRANCHES_LOVE = {"子", "午", "卯", "酉"}
+
+
+def get_wealth_star_love(day_stem: str) -> str:
+    """재성 - 일간이 극하는 오행 (남자 이성운)"""
+    elem = STEM_ELEMENT.get(day_stem)
+    control = {"목": "토", "화": "금", "토": "수", "금": "목", "수": "화"}
+    return control.get(elem, "")
+
+
+def get_officer_star_love(day_stem: str) -> str:
+    """관성 - 일간을 극하는 오행 (여자 이성운)"""
+    elem = STEM_ELEMENT.get(day_stem)
+    controlled = {"목": "금", "화": "수", "토": "목", "금": "화", "수": "토"}
+    return controlled.get(elem, "")
+
+
+def calculate_love_day(day_stem: str, day_branch: str, daily_stem: str, daily_branch: str, gender: str, origin_branches: list) -> tuple:
+    """하루 연애운 계산"""
+    positive_score = 0
+    negative_score = 0
+    positive_reasons = []
+    negative_reasons = []
+    
+    # 1. 천간합
+    if HEAVENLY_STEM_HARMONY_LOVE.get(day_stem) == daily_stem:
+        positive_score += 1
+        day_kr = STEM_KR.get(day_stem, day_stem)
+        daily_kr = STEM_KR.get(daily_stem, daily_stem)
+        positive_reasons.append(f"{day_kr}일간과 {daily_kr}일진이 천간합을 이루어 조화로운 만남의 기운이 있습니다")
+    
+    # 2. 재성/관성
+    if gender == "male":
+        target_elem = get_wealth_star_love(day_stem)
+        daily_elem = STEM_ELEMENT.get(daily_stem, "")
+        if target_elem == daily_elem:
+            positive_score += 1
+            positive_reasons.append("재성이 강하게 작용해 이성에게 호감을 얻기 좋은 날입니다")
+    else:
+        target_elem = get_officer_star_love(day_stem)
+        daily_elem = STEM_ELEMENT.get(daily_stem, "")
+        if target_elem == daily_elem:
+            positive_score += 1
+            positive_reasons.append("관성이 강하게 작용해 매력적인 만남의 기회가 있습니다")
+    
+    # 3. 도화살
+    if daily_branch in PEACH_BLOSSOM_BRANCHES_LOVE:
+        positive_score += 1
+        daily_br_kr = BRANCH_KR.get(daily_branch, daily_branch)
+        daily_animal = BRANCH_ANIMAL_KR.get(daily_branch, "")
+        positive_reasons.append(f"일진 {daily_br_kr}({daily_animal})가 도화살로 이성과의 인연이 활발한 날입니다")
+    
+    # 4. 지지충
+    for origin_br in origin_branches:
+        if EARTHLY_BRANCH_CLASH_LOVE.get(daily_branch) == origin_br:
+            negative_score += 1
+            daily_br_kr = BRANCH_KR.get(daily_branch, daily_branch)
+            daily_animal = BRANCH_ANIMAL_KR.get(daily_branch, "")
+            origin_kr = BRANCH_KR.get(origin_br, origin_br)
+            origin_animal = BRANCH_ANIMAL_KR.get(origin_br, "")
+            negative_reasons.append(f"일진 {daily_br_kr}({daily_animal})가 원국의 {origin_kr}({origin_animal})와 충을 이루어 갈등 가능성이 있으니 신중한 대화가 필요합니다")
+            break
+    
+    # 5. 비겁 과다
+    if STEM_ELEMENT.get(day_stem) == STEM_ELEMENT.get(daily_stem):
+        negative_score += 1
+        elem = STEM_ELEMENT.get(day_stem, "")
+        elem_kr_map = {"목": "나무", "화": "불", "토": "흙", "금": "쇠", "수": "물"}
+        elem_kr = elem_kr_map.get(elem, elem)
+        negative_reasons.append(f"일간과 일진이 같은 {elem_kr} 기운으로 경쟁 상황이 생길 수 있습니다")
+    
+    # 6. 레벨 판정
+    if positive_score >= 2 and negative_score == 0:
+        level = 2  # 충만
+    elif negative_score >= 2 and positive_score == 0:
+        level = 0  # 경계
+    else:
+        level = 1  # 탐색
+    
+    # 7. 메시지 조합
+    message_parts = []
+    if level == 2:
+        if positive_reasons:
+            message_parts.extend(positive_reasons)
+        else:
+            message_parts.append("전반적으로 좋은 연애 기운이 흐르는 날입니다")
+        message_parts.append("적극적으로 다가가기 좋은 날입니다")
+    elif level == 0:
+        if negative_reasons:
+            message_parts.extend(negative_reasons)
+        else:
+            message_parts.append("연애에 긴장감이 있는 날입니다")
+        message_parts.append("오늘은 거리를 두고 신중하게 행동하세요")
+    else:
+        if positive_reasons and negative_reasons:
+            message_parts.extend(positive_reasons)
+            message_parts.append("다만, " + negative_reasons[0])
+            message_parts.append("관찰하며 신중하게 접근하는 것이 좋습니다")
+        elif positive_reasons:
+            message_parts.extend(positive_reasons)
+            message_parts.append("차근차근 다가가는 것이 좋습니다")
+        elif negative_reasons:
+            message_parts.extend(negative_reasons)
+            message_parts.append("조심스럽게 행동하되 기회를 엿보세요")
+        else:
+            message_parts.append("특별한 연애 기운은 없지만 준비하고 자신을 돌아보는 시간으로 활용하세요")
+    
+    message = " ".join(message_parts) + "."
+    return level, message
+
+
+def calculate_love_calendar(chart: dict, gender: str, start_year: int, num_years: int = 3) -> dict:
+    """
+    연애운 캘린더 계산 (3개년)
+    
+    Args:
+        chart: /api/saju 응답의 chart 객체
+        gender: "male" or "female"
+        start_year: 시작 연도
+        num_years: 계산할 년수 (기본 3년)
+    
+    Returns:
+        {
+            "daily_items": [{"date": "2025-01-01", "level": 2, "message": "..."}],
+            "summary": {"충만": 25, "탐색": 322, "경계": 18, "total": 365}
+        }
+    """
+    # 일간/일지 추출
+    day_pillar = chart.get("pillars", {}).get("day", {})
+    day_stem = day_pillar.get("stem", "")
+    day_branch = day_pillar.get("branch", "")
+    
+    # 원국 지지 4개 추출
+    pillars = chart.get("pillars", {})
+    origin_branches = []
+    for key in ("year", "month", "day", "hour"):
+        p = pillars.get(key, {})
+        br = p.get("branch", "")
+        if br:
+            origin_branches.append(br)
+    
+    # 날짜 범위 생성
+    start_date = date(start_year, 1, 1)
+    end_date = date(start_year + num_years - 1, 12, 31)
+    
+    daily_items = []
+    summary = {"충만": 0, "탐색": 0, "경계": 0, "total": 0}
+    
+    current_date = start_date
+    while current_date <= end_date:
+        # 일진 계산
+        daily_pillar = get_day_pillar(current_date)
+        daily_stem = daily_pillar.get("stem", "")
+        daily_branch = daily_pillar.get("branch", "")
+        
+        # 레벨 및 메시지 계산
+        level, message = calculate_love_day(
+            day_stem, day_branch, daily_stem, daily_branch, gender, origin_branches
+        )
+        
+        daily_items.append({
+            "date": current_date.strftime("%Y-%m-%d"),
+            "level": level,
+            "message": message
+        })
+        
+        # 요약 집계
+        if level == 2:
+            summary["충만"] += 1
+        elif level == 1:
+            summary["탐색"] += 1
+        else:
+            summary["경계"] += 1
+        summary["total"] += 1
+        
+        current_date += timedelta(days=1)
+    
+    return {
+        "daily_items": daily_items,
+        "summary": summary
+    }
