@@ -1497,6 +1497,47 @@ async def generate_pdf(rid: str = Query(...), token: str = Query(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/love-calendar")
+def get_love_calendar(
+    birth: str = Query(..., description="생년월일 (YYYY-MM-DD)"),
+    birth_hour: str = Query(..., description="출생시 (HH:MM)"),
+    gender: str = Query(..., description="성별 (male/female)"),
+    calendar: str = Query("solar", description="양력/음력 (solar/lunar)"),
+    is_leap_month: bool = Query(False, description="윤달 여부"),
+    start_year: int = Query(2025, description="시작 연도"),
+    num_years: int = Query(3, description="계산 년수")
+):
+    """연애운 캘린더 API"""
+    try:
+        # 1. 사주 계산
+        result = calculate_saju(
+            birth=birth,
+            birth_hour=birth_hour,
+            gender=gender,
+            calendar=calendar,
+            is_leap_month=is_leap_month
+        )
+        
+        # 2. 연애운 계산
+        love_calendar = calculate_love_calendar(
+            chart=result["chart"],
+            gender=gender,
+            start_year=start_year,
+            num_years=num_years
+        )
+        
+        return {
+            "success": True,
+            "love_calendar": love_calendar
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
 def add_background_and_logo(original_pdf_bytes, bg_url, logo_url):
     from PIL import Image
     
