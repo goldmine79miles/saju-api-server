@@ -2063,20 +2063,29 @@ def calculate_love_calendar(chart: dict, gender: str, start_year: int, num_years
         daily_branch = daily_pillar.get("branch", "")
         
         # 레벨 및 메시지 계산
-        level, message = calculate_love_day(
+        level_num, message = calculate_love_day(
             day_stem, day_branch, daily_stem, daily_branch, gender, origin_branches
         )
         
+        # 레벨을 문자열로 변환 (프론트와 동일하게)
+        level_map = {
+            2: {"level": "충만", "icon": "❤️"},
+            1: {"level": "탐색", "icon": "💭"},
+            0: {"level": "경계", "icon": "💔"}
+        }
+        level_data = level_map.get(level_num, {"level": "탐색", "icon": "💭"})
+        
         daily_items.append({
             "date": current_date.strftime("%Y-%m-%d"),
-            "level": level,
+            "level": level_data["level"],  # 문자열로!
+            "icon": level_data["icon"],
             "message": message
         })
         
         # 요약 집계
-        if level == 2:
+        if level_num == 2:
             summary["충만"] += 1
-        elif level == 1:
+        elif level_num == 1:
             summary["탐색"] += 1
         else:
             summary["경계"] += 1
