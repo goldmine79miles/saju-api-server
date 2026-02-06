@@ -1262,10 +1262,12 @@ def calc_saju(
         
         # 🔥 연애운 캘린더 추가 (3개년)
         try:
+            from datetime import datetime
+            current_year = datetime.now().year  # 현재 연도 (2026)
             love_cal = calculate_love_calendar(
                 chart=chart_for_daily,
                 gender=gender,
-                start_year=input_dt.year,
+                start_year=current_year,  # 1979가 아니라 2026!
                 num_years=3
             )
             fortune_bundle["love_calendar"] = love_cal.get("daily_items", [])
@@ -2063,29 +2065,20 @@ def calculate_love_calendar(chart: dict, gender: str, start_year: int, num_years
         daily_branch = daily_pillar.get("branch", "")
         
         # 레벨 및 메시지 계산
-        level_num, message = calculate_love_day(
+        level, message = calculate_love_day(
             day_stem, day_branch, daily_stem, daily_branch, gender, origin_branches
         )
         
-        # 레벨을 문자열로 변환 (프론트와 동일하게)
-        level_map = {
-            2: {"level": "충만", "icon": "❤️"},
-            1: {"level": "탐색", "icon": "💭"},
-            0: {"level": "경계", "icon": "💔"}
-        }
-        level_data = level_map.get(level_num, {"level": "탐색", "icon": "💭"})
-        
         daily_items.append({
             "date": current_date.strftime("%Y-%m-%d"),
-            "level": level_data["level"],  # 문자열로!
-            "icon": level_data["icon"],
+            "level": level,
             "message": message
         })
         
         # 요약 집계
-        if level_num == 2:
+        if level == 2:
             summary["충만"] += 1
-        elif level_num == 1:
+        elif level == 1:
             summary["탐색"] += 1
         else:
             summary["경계"] += 1
