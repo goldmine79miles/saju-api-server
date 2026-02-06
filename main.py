@@ -2243,6 +2243,8 @@ def calculate_love_day(day_stem: str, day_branch: str, daily_stem: str, daily_br
 
 
 def calculate_love_calendar(chart: dict, gender: str, start_year: int, num_years: int = 3) -> dict:
+    """연애운 캘린더 계산 (사용 안 함 - API 방식으로 변경됨)"""
+    pass
 
 
 def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_branch: str, origin_branches: list) -> tuple:
