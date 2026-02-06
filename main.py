@@ -2037,12 +2037,17 @@ def calculate_love_day(day_stem: str, day_branch: str, daily_stem: str, daily_br
     positive_reasons = []
     negative_reasons = []
     
+    # 오행 한글 매핑
+    elem_kr_map = {"목": "나무", "화": "불", "토": "흙", "금": "쇠", "수": "물"}
+    
     # 1. 천간합
     if HEAVENLY_STEM_HARMONY_LOVE.get(day_stem) == daily_stem:
         positive_score += 1
-        day_kr = STEM_KR.get(day_stem, day_stem)
-        daily_kr = STEM_KR.get(daily_stem, daily_stem)
-        positive_reasons.append(f"{day_kr}일간과 {daily_kr}일진이 천간합을 이루어 조화로운 만남의 기운이 있습니다")
+        day_elem = STEM_ELEMENT.get(day_stem, "")
+        daily_elem = STEM_ELEMENT.get(daily_stem, "")
+        day_elem_kr = elem_kr_map.get(day_elem, day_elem)
+        daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
+        positive_reasons.append(f"타고난 성향의 {day_elem_kr} 기운과 오늘의 {daily_elem_kr} 기운이 서로 합을 이루어 사람 사이의 흐름이 부드럽게 풀리는 날입니다")
     
     # 2. 재성/관성
     if gender == "male":
@@ -2050,39 +2055,38 @@ def calculate_love_day(day_stem: str, day_branch: str, daily_stem: str, daily_br
         daily_elem = STEM_ELEMENT.get(daily_stem, "")
         if target_elem == daily_elem:
             positive_score += 1
-            positive_reasons.append("재성이 강하게 작용해 이성에게 호감을 얻기 좋은 날입니다")
+            positive_reasons.append("연애와 이성을 끌어당기는 기운이 강하게 작용해 자연스럽게 호감이 오가기 쉬워요")
     else:
         target_elem = get_officer_star_love(day_stem)
         daily_elem = STEM_ELEMENT.get(daily_stem, "")
         if target_elem == daily_elem:
             positive_score += 1
-            positive_reasons.append("관성이 강하게 작용해 매력적인 만남의 기회가 있습니다")
+            positive_reasons.append("관계에서 매력이 드러나는 기운이 강하게 작용하는 날입니다")
     
     # 3. 도화살
     if daily_branch in PEACH_BLOSSOM_BRANCHES_LOVE:
         positive_score += 1
-        daily_br_kr = BRANCH_KR.get(daily_branch, daily_branch)
         daily_animal = BRANCH_ANIMAL_KR.get(daily_branch, "")
-        positive_reasons.append(f"일진 {daily_br_kr}({daily_animal})가 도화살로 이성과의 인연이 활발한 날입니다")
+        positive_reasons.append(f"오늘의 {daily_animal} 기운이 인연을 활발하게 만들어 주면서 이성과의 접점이 자연스럽게 늘어날 수 있어요")
     
     # 4. 지지충
     for origin_br in origin_branches:
         if EARTHLY_BRANCH_CLASH_LOVE.get(daily_branch) == origin_br:
             negative_score += 1
-            daily_br_kr = BRANCH_KR.get(daily_branch, daily_branch)
             daily_animal = BRANCH_ANIMAL_KR.get(daily_branch, "")
-            origin_kr = BRANCH_KR.get(origin_br, origin_br)
             origin_animal = BRANCH_ANIMAL_KR.get(origin_br, "")
-            negative_reasons.append(f"일진 {daily_br_kr}({daily_animal})가 원국의 {origin_kr}({origin_animal})와 충을 이루어 갈등 가능성이 있으니 신중한 대화가 필요합니다")
+            negative_reasons.append(f"오늘의 {daily_animal} 기운이 원국 속 {origin_animal} 기운과 정면으로 부딪히는 날입니다. 대화에서 오해가 생기기 쉽고")
             break
     
     # 5. 비겁 과다
     if STEM_ELEMENT.get(day_stem) == STEM_ELEMENT.get(daily_stem):
         negative_score += 1
         elem = STEM_ELEMENT.get(day_stem, "")
-        elem_kr_map = {"목": "나무", "화": "불", "토": "흙", "금": "쇠", "수": "물"}
         elem_kr = elem_kr_map.get(elem, elem)
-        negative_reasons.append(f"일간과 일진이 같은 {elem_kr} 기운으로 경쟁 상황이 생길 수 있습니다")
+        if negative_reasons:
+            negative_reasons.append(f"타고난 성향과 오늘의 {elem_kr} 기운이 겹치면서 경쟁심도 커질 수 있어요")
+        else:
+            negative_reasons.append(f"타고난 성향과 오늘의 {elem_kr} 기운이 겹치면서 경쟁 상황이 생기기 쉬운 날입니다")
     
     # 6. 레벨 판정
     if positive_score >= 2 and negative_score == 0:
@@ -2099,26 +2103,26 @@ def calculate_love_day(day_stem: str, day_branch: str, daily_stem: str, daily_br
             message_parts.extend(positive_reasons)
         else:
             message_parts.append("전반적으로 좋은 연애 기운이 흐르는 날입니다")
-        message_parts.append("적극적으로 다가가기 좋은 날입니다")
+        message_parts.append("오늘은 괜히 망설이기보다 먼저 다가가도 좋은 하루입니다")
     elif level == 0:
         if negative_reasons:
             message_parts.extend(negative_reasons)
         else:
             message_parts.append("연애에 긴장감이 있는 날입니다")
-        message_parts.append("오늘은 거리를 두고 신중하게 행동하세요")
+        message_parts.append("오늘은 연애에서 한발 물러서 신중하게 행동하는 게 좋습니다")
     else:
         if positive_reasons and negative_reasons:
-            message_parts.extend(positive_reasons)
+            message_parts.extend(positive_reasons[:1])  # 긍정 1개만
             message_parts.append("다만, " + negative_reasons[0])
-            message_parts.append("관찰하며 신중하게 접근하는 것이 좋습니다")
+            message_parts.append("관찰하며 신중하게 접근하는 게 좋습니다")
         elif positive_reasons:
-            message_parts.extend(positive_reasons)
-            message_parts.append("차근차근 다가가는 것이 좋습니다")
+            message_parts.extend(positive_reasons[:1])
+            message_parts.append("천천히 흐름을 타는 게 좋습니다")
         elif negative_reasons:
-            message_parts.extend(negative_reasons)
-            message_parts.append("조심스럽게 행동하되 기회를 엿보세요")
+            message_parts.extend(negative_reasons[:1])
+            message_parts.append("무리하지 말고 기회를 엿보는 정도가 적당합니다")
         else:
-            message_parts.append("특별한 연애 기운은 없지만 준비하고 자신을 돌아보는 시간으로 활용하세요")
+            message_parts.append("오늘은 연애 기운이 특별히 강하게 작동하지 않는 평범한 흐름입니다. 연애보다는 자신을 돌아보고 준비하는 시간으로 활용하기에 좋은 날입니다")
     
     message = " ".join(message_parts) + "."
     return level, message
