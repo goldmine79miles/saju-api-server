@@ -1260,20 +1260,8 @@ def calc_saju(
             chart=chart_for_daily,
         )
         
-        # 🔥 연애운 캘린더 추가 (3개년)
-        try:
-            from datetime import datetime
-            current_year = datetime.now().year  # 현재 연도 (2026)
-            love_cal = calculate_love_calendar(
-                chart=chart_for_daily,
-                gender=gender,
-                start_year=current_year,  # 1979가 아니라 2026!
-                num_years=3
-            )
-            fortune_bundle["love_calendar"] = love_cal.get("daily_items", [])
-        except Exception as e:
-            print(f"[ERROR] calculate_love_calendar failed: {e}")
-            fortune_bundle["love_calendar"] = []
+        # 🔥 연애운 캘린더는 프론트에서 API 호출로 처리 (종합사주와 동일)
+        # calculate_love_calendar 삭제됨
         
         # 🔥 재물운 캘린더 추가 (3개년) - TODO: 구현 필요
         # try:
@@ -1450,6 +1438,122 @@ def get_daily_level(
         return {"daily_items": daily_items}
     
     except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Internal error: {str(e)}")
+
+
+@app.get("/api/saju/love-daily")
+def get_love_daily(
+    birth: str = Query(...),
+    calendar: str = Query("solar"),
+    birth_time: str = Query("unknown"),
+    gender: str = Query("unknown"),
+    is_leap_month: bool = Query(False),
+    year: int = Query(...),
+    month: int = Query(...),
+):
+    """특정 년월의 연애운 레벨 반환 (달 바뀔 때 호출)"""
+    from fastapi import HTTPException
+    
+    # 원국 계산 (get_daily_level과 동일)
+    try:
+        # 1) 날짜 파싱
+        try:
+            parts = birth.split("-")
+            if len(parts) != 3:
+                raise ValueError("Invalid date format")
+            b_y, b_m, b_d = int(parts[0]), int(parts[1]), int(parts[2])
+        except Exception:
+            raise HTTPException(400, "Invalid birth date format")
+        
+        # 2) 음력/양력 처리
+        if calendar == "lunar":
+            from lunar_python import Lunar, Solar
+            lunar = Lunar.fromYmd(b_y, b_m, b_d)
+            if is_leap_month:
+                lunar.setLeap(True)
+            solar = lunar.getSolar()
+            solar_confirmed = date(solar.getYear(), solar.getMonth(), solar.getDay())
+        else:
+            solar_confirmed = date(b_y, b_m, b_d)
+        
+        # 3) 시간 파싱
+        has_time = birth_time and birth_time.strip().lower() not in ("unknown", "모름", "")
+        if has_time:
+            try:
+                hm = birth_time.split(":")
+                hour_int = int(hm[0])
+                minute_int = int(hm[1]) if len(hm) > 1 else 0
+            except Exception:
+                hour_int, minute_int = 0, 0
+                has_time = False
+        else:
+            hour_int, minute_int = 0, 0
+        
+        # 4) KST 시간 계산
+        input_dt = datetime(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day, hour_int, minute_int, tzinfo=KST)
+        
+        # 5) 사주 계산
+        jieqi_this = get_jieqi_with_fallback(str(input_dt.year))
+        jieqi_prev = get_jieqi_with_fallback(str(input_dt.year - 1))
+        
+        year_pillar = get_year_pillar(input_dt.year)
+        day_pillar_birth = get_day_pillar(solar_confirmed)
+        month_pillar = get_month_pillar(input_dt, year_pillar, jieqi_this, jieqi_prev)
+        
+        pillars = {"year": year_pillar, "month": month_pillar, "day": day_pillar_birth}
+        day_stem = (day_pillar_birth or {}).get("stem", "")
+        day_branch = (day_pillar_birth or {}).get("branch", "")
+        
+        # 원국 지지 추출
+        origin_branches = []
+        for k in ["year", "month", "day", "hour"]:
+            b = pillars.get(k, {}).get("branch")
+            if b:
+                origin_branches.append(b)
+        
+        # 6) 요청한 년월의 연애운 일진 생성
+        daily_items = []
+        first = date(year, month, 1)
+        if month == 12:
+            next_first = date(year + 1, 1, 1)
+        else:
+            next_first = date(year, month + 1, 1)
+        days = (next_first - first).days
+        
+        for d in range(1, days + 1):
+            dd = date(year, month, d)
+            daily_pillar = get_day_pillar(dd)
+            daily_stem = daily_pillar.get("stem", "")
+            daily_branch = daily_pillar.get("branch", "")
+            
+            # 연애운 레벨 계산
+            level_num, message = calculate_love_day(
+                day_stem, day_branch, daily_stem, daily_branch, gender, origin_branches
+            )
+            
+            # 레벨을 문자열로 변환
+            level_map = {
+                2: {"level": "충만", "icon": "❤️"},
+                1: {"level": "탐색", "icon": "💭"},
+                0: {"level": "경계", "icon": "💔"}
+            }
+            level_data = level_map.get(level_num, {"level": "탐색", "icon": "💭"})
+            
+            daily_items.append({
+                "date": dd.isoformat(),
+                "level": level_data["level"],
+                "icon": level_data["icon"],
+                "message": message
+            })
+        
+        return {"daily_items": daily_items}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Internal error: {str(e)}")
         raise
     except Exception as e:
         print(f"[ERROR] get_daily_level: {e}")
