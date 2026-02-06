@@ -1554,6 +1554,120 @@ def get_love_daily(
         raise
     except Exception as e:
         raise HTTPException(500, f"Internal error: {str(e)}")
+
+
+@app.get("/api/saju/money-daily")
+def get_money_daily(
+    birth: str = Query(...),
+    calendar: str = Query("solar"),
+    birth_time: str = Query("unknown"),
+    gender: str = Query("unknown"),
+    is_leap_month: bool = Query(False),
+    year: int = Query(...),
+    month: int = Query(...),
+):
+    """특정 년월의 재물운 레벨 반환 (달 바뀔 때 호출)"""
+    from fastapi import HTTPException
+    
+    # 원국 계산
+    try:
+        # 1) 날짜 파싱
+        try:
+            parts = birth.split("-")
+            if len(parts) != 3:
+                raise ValueError("Invalid date format")
+            b_y, b_m, b_d = int(parts[0]), int(parts[1]), int(parts[2])
+        except Exception:
+            raise HTTPException(400, "Invalid birth date format")
+        
+        # 2) 음력/양력 처리
+        if calendar == "lunar":
+            from lunar_python import Lunar, Solar
+            lunar = Lunar.fromYmd(b_y, b_m, b_d)
+            if is_leap_month:
+                lunar.setLeap(True)
+            solar = lunar.getSolar()
+            solar_confirmed = date(solar.getYear(), solar.getMonth(), solar.getDay())
+        else:
+            solar_confirmed = date(b_y, b_m, b_d)
+        
+        # 3) 시간 파싱
+        has_time = birth_time and birth_time.strip().lower() not in ("unknown", "모름", "")
+        if has_time:
+            try:
+                hm = birth_time.split(":")
+                hour_int = int(hm[0])
+                minute_int = int(hm[1]) if len(hm) > 1 else 0
+            except Exception:
+                hour_int, minute_int = 0, 0
+                has_time = False
+        else:
+            hour_int, minute_int = 0, 0
+        
+        # 4) KST 시간 계산
+        input_dt = datetime(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day, hour_int, minute_int, tzinfo=KST)
+        
+        # 5) 사주 계산
+        jieqi_this = get_jieqi_with_fallback(str(input_dt.year))
+        jieqi_prev = get_jieqi_with_fallback(str(input_dt.year - 1))
+        
+        year_pillar = get_year_pillar(input_dt.year)
+        day_pillar_birth = get_day_pillar(solar_confirmed)
+        month_pillar = get_month_pillar(input_dt, year_pillar, jieqi_this, jieqi_prev)
+        
+        pillars = {"year": year_pillar, "month": month_pillar, "day": day_pillar_birth}
+        day_stem = (day_pillar_birth or {}).get("stem", "")
+        day_branch = (day_pillar_birth or {}).get("branch", "")
+        
+        # 원국 지지 추출
+        origin_branches = []
+        for k in ["year", "month", "day", "hour"]:
+            b = pillars.get(k, {}).get("branch")
+            if b:
+                origin_branches.append(b)
+        
+        # 6) 요청한 년월의 재물운 일진 생성
+        daily_items = []
+        first = date(year, month, 1)
+        if month == 12:
+            next_first = date(year + 1, 1, 1)
+        else:
+            next_first = date(year, month + 1, 1)
+        days = (next_first - first).days
+        
+        for d in range(1, days + 1):
+            dd = date(year, month, d)
+            daily_pillar = get_day_pillar(dd)
+            daily_stem = daily_pillar.get("stem", "")
+            daily_branch = daily_pillar.get("branch", "")
+            
+            # 재물운 레벨 계산
+            level_num, message = calculate_money_day(
+                day_stem, day_branch, daily_stem, daily_branch, origin_branches
+            )
+            
+            # 레벨을 문자열로 변환
+            level_map = {
+                2: {"level": "상승", "icon": "💵", "color": "#fef3c7"},
+                1: {"level": "관망", "icon": "🔭", "color": "#ffffff"},
+                0: {"level": "손해", "icon": "📉", "color": "#dbeafe"}
+            }
+            level_data = level_map.get(level_num, {"level": "관망", "icon": "🔭", "color": "#ffffff"})
+            
+            daily_items.append({
+                "date": dd.isoformat(),
+                "level": level_data["level"],
+                "icon": level_data["icon"],
+                "color": level_data["color"],
+                "message": message
+            })
+        
+        return {"daily_items": daily_items}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Internal error: {str(e)}")
         raise
     except Exception as e:
         print(f"[ERROR] get_daily_level: {e}")
@@ -2123,6 +2237,96 @@ def calculate_love_day(day_stem: str, day_branch: str, daily_stem: str, daily_br
             message_parts.append("무리하지 말고 기회를 엿보는 정도가 적당합니다")
         else:
             message_parts.append("오늘은 연애 기운이 특별히 강하게 작동하지 않는 평범한 흐름입니다. 연애보다는 자신을 돌아보고 준비하는 시간으로 활용하기에 좋은 날입니다")
+    
+    message = " ".join(message_parts) + "."
+    return level, message
+
+
+def calculate_love_calendar(chart: dict, gender: str, start_year: int, num_years: int = 3) -> dict:
+
+
+def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_branch: str, origin_branches: list) -> tuple:
+    """하루 재물운 계산"""
+    positive_score = 0
+    negative_score = 0
+    positive_reasons = []
+    negative_reasons = []
+    
+    # 오행 한글 매핑
+    elem_kr_map = {"목": "나무", "화": "불", "토": "흙", "금": "쇠", "수": "물"}
+    
+    # 1. 식상생재 (일간→식상→재성 흐름)
+    day_elem = STEM_ELEMENT.get(day_stem, "")
+    daily_elem = STEM_ELEMENT.get(daily_stem, "")
+    generates = {"목": "화", "화": "토", "토": "금", "금": "수", "수": "목"}
+    
+    if generates.get(day_elem) == daily_elem:
+        positive_score += 1
+        day_elem_kr = elem_kr_map.get(day_elem, day_elem)
+        daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
+        positive_reasons.append(f"타고난 {day_elem_kr} 기운이 오늘의 {daily_elem_kr} 기운을 만들어내면서 성과가 재물로 이어지기 좋은 날입니다")
+    
+    # 2. 재성 강함 (일간이 극하는 오행)
+    controls = {"목": "토", "화": "금", "토": "수", "금": "목", "수": "화"}
+    if controls.get(day_elem) == daily_elem:
+        positive_score += 1
+        daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
+        positive_reasons.append(f"오늘의 {daily_elem_kr} 기운이 재물로 작용하면서 수입 흐름이 자연스럽게 늘어날 수 있어요")
+    
+    # 3. 비겁탈재 (같은 오행 = 경쟁)
+    if day_elem == daily_elem:
+        negative_score += 1
+        elem_kr = elem_kr_map.get(day_elem, day_elem)
+        negative_reasons.append(f"타고난 {elem_kr} 기운과 오늘의 {elem_kr} 기운이 겹치면서 재물 경쟁이나 분산 가능성이 있습니다")
+    
+    # 4. 지지충으로 재물 파괴
+    EARTHLY_BRANCH_CLASH = {
+        "子": "午", "午": "子", "丑": "未", "未": "丑", "寅": "申", 
+        "申": "寅", "卯": "酉", "酉": "卯", "辰": "戌", "戌": "辰", "巳": "亥", "亥": "巳",
+    }
+    for origin_br in origin_branches:
+        if EARTHLY_BRANCH_CLASH.get(daily_branch) == origin_br:
+            negative_score += 1
+            daily_animal = BRANCH_ANIMAL_KR.get(daily_branch, "")
+            origin_animal = BRANCH_ANIMAL_KR.get(origin_br, "")
+            negative_reasons.append(f"오늘의 {daily_animal} 기운이 원국 속 {origin_animal} 기운과 충돌하면서 예상치 못한 지출이 생기기 쉬운 날입니다")
+            break
+    
+    # 5. 레벨 판정
+    if positive_score >= 2 and negative_score == 0:
+        level = 2  # 상승
+    elif negative_score >= 2 and positive_score == 0:
+        level = 0  # 손해
+    else:
+        level = 1  # 관망
+    
+    # 6. 메시지 조합
+    message_parts = []
+    if level == 2:
+        if positive_reasons:
+            message_parts.extend(positive_reasons)
+        else:
+            message_parts.append("전반적으로 재물운이 좋은 흐름을 타는 날입니다")
+        message_parts.append("재테크나 투자 계획을 세우기 좋은 날입니다")
+    elif level == 0:
+        if negative_reasons:
+            message_parts.extend(negative_reasons)
+        else:
+            message_parts.append("재물에 긴장감이 있는 날입니다")
+        message_parts.append("큰 지출이나 투자는 미루는 것이 좋습니다")
+    else:
+        if positive_reasons and negative_reasons:
+            message_parts.extend(positive_reasons[:1])
+            message_parts.append("다만, " + negative_reasons[0])
+            message_parts.append("신중하게 판단하며 기회를 엿보세요")
+        elif positive_reasons:
+            message_parts.extend(positive_reasons[:1])
+            message_parts.append("작은 재테크부터 시작해보세요")
+        elif negative_reasons:
+            message_parts.extend(negative_reasons[:1])
+            message_parts.append("보수적으로 접근하되 기회를 찾아보세요")
+        else:
+            message_parts.append("특별한 재물 기운은 없지만 꾸준한 관리가 중요한 시기입니다")
     
     message = " ".join(message_parts) + "."
     return level, message
