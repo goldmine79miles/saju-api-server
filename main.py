@@ -1289,6 +1289,18 @@ def calc_saju(
             "is_leap_month": is_leap_month,
         },
         "meta": {
+            # 프론트 표시용 추가
+            "birth": birth,                    # 원본 입력 (음력이면 음력, 양력이면 양력)
+            "calendar": calendar,              # "solar" or "lunar"
+            "birth_time": birth_time,
+            "gender": gender,
+            "is_leap_month": is_leap_month,    # 윤달 여부
+            
+            # 양력 변환 결과 (문자열)
+            "solar": f"{input_dt.year}-{input_dt.month:02d}-{input_dt.day:02d}",
+            "solar_time": birth_time,
+            
+            # 기존 구조 유지
             "solar_confirmed": {
                 "year": input_dt.year,
                 "month": input_dt.month,
