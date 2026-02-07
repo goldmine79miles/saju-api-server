@@ -2275,13 +2275,19 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
         positive_reasons.append(f"오늘의 {daily_elem_kr} 기운이 재물로 작용하면서 수입 흐름이 자연스럽게 늘어날 수 있어요")
     
-    # 3. 비겁탈재 (같은 오행 = 경쟁)
+    # 3. 천간생 (일간이 생하는 오행) - 새로 추가
+    if generates.get(generates.get(day_elem)) == daily_elem:
+        positive_score += 1
+        daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
+        positive_reasons.append(f"오늘의 {daily_elem_kr} 기운이 재물 흐름을 돕는 날입니다")
+    
+    # 4. 비겁탈재 (같은 오행 = 경쟁)
     if day_elem == daily_elem:
         negative_score += 1
         elem_kr = elem_kr_map.get(day_elem, day_elem)
         negative_reasons.append(f"타고난 {elem_kr} 기운과 오늘의 {elem_kr} 기운이 겹치면서 재물 경쟁이나 분산 가능성이 있습니다")
     
-    # 4. 지지충으로 재물 파괴
+    # 5. 지지충으로 재물 파괴
     EARTHLY_BRANCH_CLASH = {
         "子": "午", "午": "子", "丑": "未", "未": "丑", "寅": "申", 
         "申": "寅", "卯": "酉", "酉": "卯", "辰": "戌", "戌": "辰", "巳": "亥", "亥": "巳",
@@ -2294,13 +2300,20 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
             negative_reasons.append(f"오늘의 {daily_animal} 기운이 원국 속 {origin_animal} 기운과 충돌하면서 예상치 못한 지출이 생기기 쉬운 날입니다")
             break
     
-    # 5. 레벨 판정 (연애운과 동일하게 강화)
+    # 6. 관성 과다 (일간을 극하는 오행) - 새로 추가
+    controlled_by = {"목": "금", "화": "수", "토": "목", "금": "화", "수": "토"}
+    if controlled_by.get(day_elem) == daily_elem:
+        negative_score += 1
+        daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
+        negative_reasons.append(f"오늘의 {daily_elem_kr} 기운이 강하게 작용하면서 재물 압박을 느낄 수 있습니다")
+    
+    # 5. 레벨 판정 (연애운과 완전 동일)
     if positive_score >= 2 and negative_score == 0:
-        level = 2  # 상승
+        level = 2  # 상승 (좋은 기운만 2개 이상)
     elif negative_score >= 2 and positive_score == 0:
-        level = 0  # 손해
+        level = 0  # 손해 (나쁜 기운만 2개 이상)
     else:
-        level = 1  # 관망
+        level = 1  # 관망 (섞임 or 보통)
     
     # 6. 메시지 조합
     message_parts = []
