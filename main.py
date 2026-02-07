@@ -2294,11 +2294,13 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
             negative_reasons.append(f"오늘의 {daily_animal} 기운이 원국 속 {origin_animal} 기운과 충돌하면서 예상치 못한 지출이 생기기 쉬운 날입니다")
             break
     
-    # 5. 레벨 판정
+    # 5. 레벨 판정 (조건 완화)
     if positive_score >= 2 and negative_score == 0:
         level = 2  # 상승
-    elif negative_score >= 2 and positive_score == 0:
+    elif negative_score >= 1 and positive_score == 0:
         level = 0  # 손해
+    elif positive_score >= 1 and negative_score == 0:
+        level = 2  # 상승 (완화)
     else:
         level = 1  # 관망
     
