@@ -248,15 +248,30 @@ def kasi_sol_to_lun(sol_year: int, sol_month: int, sol_day: int) -> dict:
 
 def kasi_lun_to_sol(lun_year: int, lun_month: int, lun_day: int, is_leap_month: bool) -> dict:
     """Lunar(+leap) -> Solar. Returns confirmed solar date."""
+    
+    # 🔍 DEBUG: 입력값 확인
+    print(f"[DEBUG kasi_lun_to_sol] 입력 - year:{lun_year} month:{lun_month} day:{lun_day}")
+    print(f"[DEBUG kasi_lun_to_sol] is_leap_month: {is_leap_month} (타입: {type(is_leap_month)})")
+    
+    leap_str = "윤" if is_leap_month else "평"
+    print(f"[DEBUG kasi_lun_to_sol] KASI 전달값 lunLeapmonth: '{leap_str}'")
+    
     item = _kasi_call("getSolCalInfo", {
         "lunYear": str(lun_year),
         "lunMonth": f"{lun_month:02d}",
         "lunDay": f"{lun_day:02d}",
-        "lunLeapmonth": "윤" if is_leap_month else "평",
+        "lunLeapmonth": leap_str,
     })
+    
+    print(f"[DEBUG kasi_lun_to_sol] KASI 응답: {item}")
+    
     sol_year = int(item.get("solYear"))
     sol_month = int(item.get("solMonth"))
     sol_day = int(item.get("solDay"))
+    
+    print(f"[DEBUG kasi_lun_to_sol] 변환결과 - 양력 {sol_year}-{sol_month:02d}-{sol_day:02d}")
+    
+    return {"year": sol_year, "month": sol_month, "day": sol_day}
 
     # --------------------------------------------------
     # 4) Fortune bundle (대운/연운/월운/일진) — added only
@@ -1150,8 +1165,15 @@ def calc_saju(
 ):
     from fastapi import HTTPException
 
+    # 🔍 DEBUG: is_leap_month 파라미터 확인
+    print(f"[DEBUG calc_saju] is_leap_month 원본값: {is_leap_month}")
+    print(f"[DEBUG calc_saju] is_leap_month 타입: {type(is_leap_month)}")
+    
     # Convert is_leap_month string to bool
     is_leap_bool = str(is_leap_month).lower() in ["true", "1", "yes"]
+    
+    print(f"[DEBUG calc_saju] is_leap_bool 변환결과: {is_leap_bool}")
+    print(f"[DEBUG calc_saju] calendar: {calendar}")
 
     # --------------------------------------------------
     # --------------------------------------------------
