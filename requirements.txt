@@ -10,3 +10,4 @@ reportlab
 Pillow
 cairosvg
 psycopg2-binary==2.9.9
+lunar-python
