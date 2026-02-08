@@ -1146,9 +1146,12 @@ def calc_saju(
     calendar: str = Query("solar"),
     birth_time: str = Query("unknown"),
     gender: str = Query("unknown"),
-    is_leap_month: bool = Query(False),
+    is_leap_month: str = Query("false"),
 ):
     from fastapi import HTTPException
+
+    # Convert is_leap_month string to bool
+    is_leap_bool = str(is_leap_month).lower() in ["true", "1", "yes"]
 
     # --------------------------------------------------
     # --------------------------------------------------
@@ -1163,21 +1166,21 @@ def calc_saju(
     try:
         birth_date_in = datetime.strptime(birth, "%Y-%m-%d").date()
 
-        cached = ssot_lookup(birth_date_in, calendar, bool(is_leap_month))
+        cached = ssot_lookup(birth_date_in, calendar, is_leap_bool)
         if cached and cached.get("solar_confirmed"):
             solar_confirmed = cached["solar_confirmed"]
             lunar_meta = cached.get("lunar_confirmed") or {}
         else:
             if (calendar or "").lower() == "lunar":
                 sol = kasi_lun_to_sol(
-                    birth_date_in.year, birth_date_in.month, birth_date_in.day, bool(is_leap_month)
+                    birth_date_in.year, birth_date_in.month, birth_date_in.day, is_leap_bool
                 )
                 solar_confirmed = date(sol["year"], sol["month"], sol["day"])
             else:
                 solar_confirmed = birth_date_in
 
             lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
-            ssot_upsert(birth_date_in, calendar, bool(is_leap_month), solar_confirmed, lunar_meta)
+            ssot_upsert(birth_date_in, calendar, is_leap_bool, solar_confirmed, lunar_meta)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"KASI/SSOT calendar conversion failed: {e}")
     # --------------------------------------------------
@@ -1286,7 +1289,7 @@ def calc_saju(
             "calendar": calendar,
             "birth_time": birth_time,
             "gender": gender,
-            "is_leap_month": is_leap_month,
+            "is_leap_month": is_leap_bool,
         },
         "meta": {
             # 프론트 표시용 추가
@@ -1294,7 +1297,7 @@ def calc_saju(
             "calendar": calendar,              # "solar" or "lunar"
             "birth_time": birth_time,
             "gender": gender,
-            "is_leap_month": is_leap_month,    # 윤달 여부
+            "is_leap_month": is_leap_bool,    # 윤달 여부
             
             # 양력 변환 결과 (문자열)
             "solar": f"{input_dt.year}-{input_dt.month:02d}-{input_dt.day:02d}",
@@ -1347,12 +1350,15 @@ def get_daily_level(
     calendar: str = Query("solar"),
     birth_time: str = Query("unknown"),
     gender: str = Query("unknown"),
-    is_leap_month: bool = Query(False),
+    is_leap_month: str = Query("false"),
     year: int = Query(...),
     month: int = Query(...),
 ):
     """특정 년월의 일진 레벨 반환 (달 바뀔 때 호출)"""
     from fastapi import HTTPException
+    
+    # Convert is_leap_month string to bool
+    is_leap_bool = str(is_leap_month).lower() in ["true", "1", "yes"]
     
     # 원국 계산 (calc_saju와 동일한 로직)
     try:
@@ -1369,7 +1375,7 @@ def get_daily_level(
         if calendar == "lunar":
             from lunar_python import Lunar, Solar
             lunar = Lunar.fromYmd(b_y, b_m, b_d)
-            if is_leap_month:
+            if is_leap_bool:
                 lunar.setLeap(True)
             solar = lunar.getSolar()
             solar_confirmed = date(solar.getYear(), solar.getMonth(), solar.getDay())
@@ -1461,12 +1467,15 @@ def get_love_daily(
     calendar: str = Query("solar"),
     birth_time: str = Query("unknown"),
     gender: str = Query("unknown"),
-    is_leap_month: bool = Query(False),
+    is_leap_month: str = Query("false"),
     year: int = Query(...),
     month: int = Query(...),
 ):
     """특정 년월의 연애운 레벨 반환 (달 바뀔 때 호출)"""
     from fastapi import HTTPException
+    
+    # Convert is_leap_month string to bool
+    is_leap_bool = str(is_leap_month).lower() in ["true", "1", "yes"]
     
     # 원국 계산 (get_daily_level과 동일)
     try:
@@ -1483,7 +1492,7 @@ def get_love_daily(
         if calendar == "lunar":
             from lunar_python import Lunar, Solar
             lunar = Lunar.fromYmd(b_y, b_m, b_d)
-            if is_leap_month:
+            if is_leap_bool:
                 lunar.setLeap(True)
             solar = lunar.getSolar()
             solar_confirmed = date(solar.getYear(), solar.getMonth(), solar.getDay())
@@ -1574,12 +1583,15 @@ def get_money_daily(
     calendar: str = Query("solar"),
     birth_time: str = Query("unknown"),
     gender: str = Query("unknown"),
-    is_leap_month: bool = Query(False),
+    is_leap_month: str = Query("false"),
     year: int = Query(...),
     month: int = Query(...),
 ):
     """특정 년월의 재물운 레벨 반환 (달 바뀔 때 호출)"""
     from fastapi import HTTPException
+    
+    # Convert is_leap_month string to bool
+    is_leap_bool = str(is_leap_month).lower() in ["true", "1", "yes"]
     
     # 원국 계산
     try:
@@ -1596,7 +1608,7 @@ def get_money_daily(
         if calendar == "lunar":
             from lunar_python import Lunar, Solar
             lunar = Lunar.fromYmd(b_y, b_m, b_d)
-            if is_leap_month:
+            if is_leap_bool:
                 lunar.setLeap(True)
             solar = lunar.getSolar()
             solar_confirmed = date(solar.getYear(), solar.getMonth(), solar.getDay())
