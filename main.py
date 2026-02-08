@@ -214,14 +214,28 @@ def _kasi_call(endpoint: str, params: dict) -> dict:
     q = {"serviceKey": KASI_SERVICE_KEY, "_type": "json"}
     q.update(params)
     url = f"{KASI_BASE}/{endpoint}"
+    
+    # 🔍 DEBUG: KASI API 호출 정보
+    print(f"[DEBUG _kasi_call] Endpoint: {endpoint}")
+    print(f"[DEBUG _kasi_call] Input params: {params}")
+    print(f"[DEBUG _kasi_call] Full params (q): {q}")
+    print(f"[DEBUG _kasi_call] Base URL: {url}")
 
     resp = requests.get(url, params=q, timeout=10)
+    
+    # 🔍 DEBUG: 실제 요청 URL
+    print(f"[DEBUG _kasi_call] 실제 요청 URL: {resp.url}")
+    print(f"[DEBUG _kasi_call] HTTP Status: {resp.status_code}")
+    
     if resp.status_code != 200:
         raise RuntimeError(f"KASI HTTP {resp.status_code}: {resp.text[:200]}")
 
     item = _kasi_parse_item(resp)
     if not item:
         raise RuntimeError(f"KASI returned empty item: {resp.text[:200]}")
+    
+    print(f"[DEBUG _kasi_call] 파싱된 응답: {item}")
+    
     return item
 
 def kasi_sol_to_lun(sol_year: int, sol_month: int, sol_day: int) -> dict:
