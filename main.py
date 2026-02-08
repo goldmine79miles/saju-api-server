@@ -207,6 +207,33 @@ def _kasi_parse_item(resp: requests.Response) -> dict:
     except Exception:
         return {}
 
+def _kasi_call_raw(endpoint: str, params: dict) -> dict:
+    """KASI API 호출 - 전체 응답 JSON 리턴 (배열 처리용)"""
+    if not KASI_SERVICE_KEY:
+        raise RuntimeError("KASI_SERVICE_KEY is missing on server")
+
+    q = {"serviceKey": KASI_SERVICE_KEY, "_type": "json"}
+    q.update(params)
+    url = f"{KASI_BASE}/{endpoint}"
+    
+    print(f"[DEBUG _kasi_call_raw] Endpoint: {endpoint}")
+    print(f"[DEBUG _kasi_call_raw] Params: {params}")
+
+    resp = requests.get(url, params=q, timeout=10)
+    
+    print(f"[DEBUG _kasi_call_raw] 실제 URL: {resp.url}")
+    print(f"[DEBUG _kasi_call_raw] HTTP Status: {resp.status_code}")
+    
+    if resp.status_code != 200:
+        raise RuntimeError(f"KASI HTTP {resp.status_code}: {resp.text[:200]}")
+    
+    try:
+        data = resp.json()
+        print(f"[DEBUG _kasi_call_raw] 응답 데이터 구조: {list(data.keys())}")
+        return data
+    except Exception as e:
+        raise RuntimeError(f"KASI JSON parse failed: {e}")
+
 def _kasi_call(endpoint: str, params: dict) -> dict:
     if not KASI_SERVICE_KEY:
         raise RuntimeError("KASI_SERVICE_KEY is missing on server")
@@ -267,17 +294,50 @@ def kasi_lun_to_sol(lun_year: int, lun_month: int, lun_day: int, is_leap_month: 
     print(f"[DEBUG kasi_lun_to_sol] 입력 - year:{lun_year} month:{lun_month} day:{lun_day}")
     print(f"[DEBUG kasi_lun_to_sol] is_leap_month: {is_leap_month} (타입: {type(is_leap_month)})")
     
-    leap_str = "윤" if is_leap_month else "평"
-    print(f"[DEBUG kasi_lun_to_sol] KASI 전달값 lunLeapmonth: '{leap_str}'")
+    # ✅ FIX: KASI API는 lunLeapmonth=1로 보내면 평달/윤달 둘 다 리턴
+    print(f"[DEBUG kasi_lun_to_sol] KASI 전달값 lunLeapmonth: '1' (평달/윤달 모두 요청)")
     
-    item = _kasi_call("getSolCalInfo", {
+    # KASI API 호출 - lunLeapmonth=1로 고정
+    resp_data = _kasi_call_raw("getSolCalInfo", {
         "lunYear": str(lun_year),
         "lunMonth": f"{lun_month:02d}",
         "lunDay": f"{lun_day:02d}",
-        "lunLeapmonth": leap_str,
+        "lunLeapmonth": "1",  # ← 한글 대신 1 사용
     })
     
-    print(f"[DEBUG kasi_lun_to_sol] KASI 응답: {item}")
+    # 응답 파싱
+    try:
+        items = (
+            resp_data.get("response", {})
+                .get("body", {})
+                .get("items", {})
+                .get("item")
+        )
+        
+        print(f"[DEBUG kasi_lun_to_sol] KASI 응답 아이템 개수: {len(items) if isinstance(items, list) else 1}")
+        
+        # 리스트면 is_leap_month에 맞는 것 선택
+        if isinstance(items, list):
+            target_leap = "윤" if is_leap_month else "평"
+            item = None
+            for it in items:
+                if it.get("lunLeapmonth") == target_leap:
+                    item = it
+                    break
+            
+            if not item:
+                print(f"[DEBUG kasi_lun_to_sol] ❌ {target_leap}달 데이터 없음! 첫 번째 사용")
+                item = items[0]
+            else:
+                print(f"[DEBUG kasi_lun_to_sol] ✅ {target_leap}달 데이터 선택됨")
+        else:
+            item = items
+        
+        print(f"[DEBUG kasi_lun_to_sol] 선택된 item: {item}")
+        
+    except Exception as e:
+        print(f"[DEBUG kasi_lun_to_sol] ❌ 파싱 에러: {e}")
+        raise
     
     sol_year = int(item.get("solYear"))
     sol_month = int(item.get("solMonth"))
