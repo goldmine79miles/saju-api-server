@@ -1469,12 +1469,9 @@ def get_daily_level(
         
         # 2) 음력/양력 처리
         if calendar == "lunar":
-            from lunar_python import Lunar, Solar
-            lunar = Lunar.fromYmd(b_y, b_m, b_d)
-            if is_leap_bool:
-                lunar.setLeap(True)
-            solar = lunar.getSolar()
-            solar_confirmed = date(solar.getYear(), solar.getMonth(), solar.getDay())
+            # ✅ KASI API로 음력→양력 변환
+            sol = kasi_lun_to_sol(b_y, b_m, b_d, is_leap_bool)
+            solar_confirmed = date(sol["year"], sol["month"], sol["day"])
         else:
             solar_confirmed = date(b_y, b_m, b_d)
         
@@ -1586,12 +1583,9 @@ def get_love_daily(
         
         # 2) 음력/양력 처리
         if calendar == "lunar":
-            from lunar_python import Lunar, Solar
-            lunar = Lunar.fromYmd(b_y, b_m, b_d)
-            if is_leap_bool:
-                lunar.setLeap(True)
-            solar = lunar.getSolar()
-            solar_confirmed = date(solar.getYear(), solar.getMonth(), solar.getDay())
+            # ✅ KASI API로 음력→양력 변환
+            sol = kasi_lun_to_sol(b_y, b_m, b_d, is_leap_bool)
+            solar_confirmed = date(sol["year"], sol["month"], sol["day"])
         else:
             solar_confirmed = date(b_y, b_m, b_d)
         
@@ -1702,12 +1696,9 @@ def get_money_daily(
         
         # 2) 음력/양력 처리
         if calendar == "lunar":
-            from lunar_python import Lunar, Solar
-            lunar = Lunar.fromYmd(b_y, b_m, b_d)
-            if is_leap_bool:
-                lunar.setLeap(True)
-            solar = lunar.getSolar()
-            solar_confirmed = date(solar.getYear(), solar.getMonth(), solar.getDay())
+            # ✅ KASI API로 음력→양력 변환
+            sol = kasi_lun_to_sol(b_y, b_m, b_d, is_leap_bool)
+            solar_confirmed = date(sol["year"], sol["month"], sol["day"])
         else:
             solar_confirmed = date(b_y, b_m, b_d)
         
