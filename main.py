@@ -2082,7 +2082,7 @@ def calc_daily_level(chart, day_pillar):
     try:
         day_branch = day_pillar["branch"]
         for b in chart.get("branches", []):
-            if BRANCH_CHUNG.get(day_branch) == b:
+            if BRANCH_CHUNG.get(day_branch) == b and b not in chung_branches:
                 chung_branches.append(b)
         branch_score = branch_relation_score(day_branch, chart.get("branches", []))
         score += branch_score * 3  # 가중치 3배
@@ -2162,7 +2162,7 @@ def calc_daily_level(chart, day_pillar):
     if chung_branches:
         for b in chung_branches:
             b_animal = branch_animal.get(b, b)
-            negative_reasons.append(f"오늘의 {animal_name}({branch})는 사주에 있는 {b_animal}({b})와 충을 이루는 날입니다")
+            negative_reasons.append(f"오늘의 {animal_name}는 사주에 있는 {b_animal}와 충을 이루는 날입니다")
     
     # 십성 분석 (ten_score 활용)
     if ten_score >= 6:
