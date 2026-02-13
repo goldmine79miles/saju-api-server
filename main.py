@@ -1037,41 +1037,57 @@ def _daewoon_forward(gender: str, year_stem: str) -> bool:
     # unknown: default to yang-year forward, yin-year backward (stable)
     return bool(yang)
 
+# 절(節) 이름 — 대운 계산은 절(節)만 사용, 중기(中氣) 제외
+JIE_NAMES = {
+    "입춘", "경칩", "청명", "입하", "망종", "소서",
+    "입추", "백로", "한로", "립동", "입동", "대설", "소한",
+    "立春", "驚蟄", "清明", "立夏", "芒種", "小暑",
+    "立秋", "白露", "寒露", "立冬", "大雪", "小寒",
+}
+
+def _is_jie(item: dict) -> bool:
+    """절기가 절(節)인지 확인 (중기 제외)"""
+    name = item.get("name", "")
+    return name in JIE_NAMES
+
 def _next_jieqi_dt(after_dt: datetime, jieqi_this_year: list, jieqi_next_year: list) -> datetime:
-    """Return the next jieqi datetime strictly after after_dt (KST)."""
+    """Return the next 절(節) datetime strictly after after_dt (KST)."""
     cands = []
     for item in (jieqi_this_year or []):
+        if not _is_jie(item):
+            continue
         dt = _pick_item_dt(item)
         if dt and dt > after_dt:
             cands.append(dt)
-    if cands:
-        return min(cands)
+    for item in (jieqi_next_year or []):
+        if not _is_jie(item):
+            continue
+        dt = _pick_item_dt(item)
+        if dt and dt > after_dt:
+            cands.append(dt)
+    if not cands:
+        return after_dt + timedelta(days=30)
+    return min(cands)
 
 
 def _prev_jieqi_dt(before_dt: datetime, jieqi_this_year: list, jieqi_prev_year: list) -> datetime:
-    """Return the previous jieqi datetime strictly before before_dt (KST)."""
+    """Return the previous 절(節) datetime strictly before before_dt (KST)."""
     cands = []
     for item in (jieqi_this_year or []):
+        if not _is_jie(item):
+            continue
         dt = _pick_item_dt(item)
         if dt and dt < before_dt:
             cands.append(dt)
     for item in (jieqi_prev_year or []):
+        if not _is_jie(item):
+            continue
         dt = _pick_item_dt(item)
         if dt and dt < before_dt:
             cands.append(dt)
     if not cands:
-        # deterministic fallback
         return before_dt - timedelta(days=30)
     return max(cands)
-
-    for item in (jieqi_next_year or []):
-        dt = _pick_item_dt(item)
-        if dt and dt > after_dt:
-            cands.append(dt)
-    if not cands:
-        # should never happen if table is valid; keep deterministic fallback
-        return after_dt + timedelta(days=30)
-    return min(cands)
 
 def _daewoon_start_age(
     input_dt: datetime,
@@ -1147,9 +1163,15 @@ def build_fortune_bundle(
             "direction": "forward" if forward else "backward",
         })
 
-    # Yearly for the first daewoon block by default (frontend may pick other index)
-    y_from = daewoon[0]["from_year"]
-    y_to = daewoon[0]["to_year"]
+    # Yearly: 현재 연도가 포함된 대운 블록 기준 (fallback: 첫 번째 블록)
+    current_year = date.today().year
+    active_dw = daewoon[0]  # fallback
+    for dw in daewoon:
+        if dw["from_year"] <= current_year <= dw["to_year"]:
+            active_dw = dw
+            break
+    y_from = active_dw["from_year"]
+    y_to = active_dw["to_year"]
     yearly_items = []
     for y in range(y_from, y_to + 1):
         yp = get_year_pillar(y)
