@@ -1098,18 +1098,20 @@ def _daewoon_start_age(
 ) -> int:
     """
     점신 호환 대운수:
-    - 순행: ceil((다음 절기 - 출생) / 3일)
-    - 역행: floor((출생 - 이전 절기) / 3일)
+    - 순행: (다음 절기 - 출생) / 3일, 나머지 2일 이상이면 +1
+    - 역행: (출생 - 이전 절기) / 3일, 나머지 2일 이상이면 +1
     range clamp: 1..12
     """
     if forward:
         nxt = _next_jieqi_dt(input_dt, jieqi_this_year, jieqi_next_year)
         diff_days = (nxt - input_dt).total_seconds() / 86400.0
-        age = int(_math.ceil(diff_days / 3.0))
     else:
         prv = _prev_jieqi_dt(input_dt, jieqi_this_year, jieqi_prev_year)
         diff_days = (input_dt - prv).total_seconds() / 86400.0
-        age = int(_math.floor(diff_days / 3.0))
+
+    q = int(diff_days) // 3
+    r = int(diff_days) % 3
+    age = q + (1 if r >= 2 else 0)
 
     if age < 1:
         age = 1
