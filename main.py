@@ -2158,11 +2158,26 @@ def calc_daily_level(chart, day_pillar):
     elif elem_score < 0:
         negative_reasons.append(f"당신 사주에 {elem_name} 기운이 이미 강한 편인데 오늘도 {elem_name} 기운이 더해져 과해질 수 있습니다")
     
+    # 조사 헬퍼 (받침 유무 판단)
+    def _has_batchim(word: str) -> bool:
+        if not word:
+            return False
+        last = ord(word[-1])
+        if 0xAC00 <= last <= 0xD7A3:
+            return (last - 0xAC00) % 28 != 0
+        return False
+    
+    def _josa_nun(word: str) -> str:
+        return "은" if _has_batchim(word) else "는"
+    
+    def _josa_wa(word: str) -> str:
+        return "과" if _has_batchim(word) else "와"
+    
     # 지지 충돌
     if chung_branches:
         for b in chung_branches:
             b_animal = branch_animal.get(b, b)
-            negative_reasons.append(f"오늘의 {animal_name}는 사주에 있는 {b_animal}와 충을 이루는 날입니다")
+            negative_reasons.append(f"오늘 {animal_name}의 기운은 사주에 있는 {b_animal}의 기운과 충을 이루면서 예상치 못한 변수가 생기기 쉬운 날입니다. 중요한 결정은 하루 미루는 것이 좋습니다")
     
     # 십성 분석 (ten_score 활용)
     if ten_score >= 6:
@@ -2205,7 +2220,10 @@ def calc_daily_level(chart, day_pillar):
                 negative_reasons.append(f"일진 {ganji_name}이 전반적으로 원국과 약한 흐름을 만듭니다")
         
         sentences.append(" ".join(negative_reasons) + ".")
-        sentences.append("변동이나 긴장 상황에 신중하게 대응하세요.")
+        if chung_branches:
+            sentences.append("무리하지 말고 차분하게 하루를 보내세요.")
+        else:
+            sentences.append("변동이나 긴장 상황에 신중하게 대응하세요.")
     
     else:  # 양호, 보통, 신중
         # 긍정/부정 요소가 있으면 둘 다 설명
