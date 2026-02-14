@@ -1360,7 +1360,7 @@ def calc_saju(
         elements_data = calculate_elements_ratio(pillars)
         branches = []
         for k in ["year", "month", "day", "hour"]:
-            b = pillars.get(k, {}).get("branch")
+            p = pillars.get(k); b = p.get("branch") if p else None
             if b:
                 branches.append(b)
         
@@ -1537,7 +1537,7 @@ def get_daily_level(
         elements_data = calculate_elements_ratio(pillars)
         branches = []
         for k in ["year", "month", "day", "hour"]:
-            b = pillars.get(k, {}).get("branch")
+            p = pillars.get(k); b = p.get("branch") if p else None
             if b:
                 branches.append(b)
         
@@ -1644,7 +1644,7 @@ def get_love_daily(
         # 원국 지지 추출
         origin_branches = []
         for k in ["year", "month", "day", "hour"]:
-            b = pillars.get(k, {}).get("branch")
+            p = pillars.get(k); b = p.get("branch") if p else None
             if b:
                 origin_branches.append(b)
         
@@ -1757,7 +1757,7 @@ def get_money_daily(
         # 원국 지지 추출
         origin_branches = []
         for k in ["year", "month", "day", "hour"]:
-            b = pillars.get(k, {}).get("branch")
+            p = pillars.get(k); b = p.get("branch") if p else None
             if b:
                 origin_branches.append(b)
         
