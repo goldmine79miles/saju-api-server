@@ -2119,7 +2119,7 @@ def calc_daily_level(chart, day_pillar):
         pass
 
     # 3단계 레벨 결정 (길일 < 주의)
-    if score >= 90:
+    if score >= 85:
         level = "길일"
     elif score < 24:
         level = "주의"
@@ -2431,9 +2431,9 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
         positive_reasons.append(f"오늘의 {daily_elem_kr} 기운이 재물로 작용하면서 수입 흐름이 자연스럽게 늘어날 수 있어요")
     
-    # 3. 천간생 (일간이 생하는 오행) - 약한 긍정
+    # 3. 천간생 (일간이 생하는 오행)
     if generates.get(generates.get(day_elem)) == daily_elem:
-        positive_score += 0.5
+        positive_score += 1
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
         positive_reasons.append(f"오늘의 {daily_elem_kr} 기운이 재물 흐름을 돕는 날입니다")
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
@@ -2465,9 +2465,9 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
         negative_reasons.append(f"오늘의 {daily_elem_kr} 기운이 강하게 작용하면서 재물 압박을 느낄 수 있습니다")
     
-    # 5. 레벨 판정
-    if positive_score >= 2 and negative_score == 0:
-        level = 2  # 상승
+    # 5. 레벨 판정 (재물은 긍정 3개 동시 충족 시에만 상승)
+    if positive_score >= 3 and negative_score == 0:
+        level = 2  # 상승 (3요소 모두 충족)
     elif negative_score >= 1 and positive_score == 0:
         level = 0  # 손해
     elif negative_score >= 2:
