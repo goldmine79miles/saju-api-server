@@ -2119,7 +2119,7 @@ def calc_daily_level(chart, day_pillar):
         pass
 
     # 3단계 레벨 결정
-    if score >= 88:
+    if score >= 85:
         level = "길일"
     elif score < 20:
         level = "주의"
@@ -2431,8 +2431,9 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
         positive_reasons.append(f"오늘의 {daily_elem_kr} 기운이 재물로 작용하면서 수입 흐름이 자연스럽게 늘어날 수 있어요")
     
-    # 3. 천간생 (일간이 생하는 오행) - 이유만, 점수 기여 없음
+    # 3. 천간생 (일간이 생하는 오행)
     if generates.get(generates.get(day_elem)) == daily_elem:
+        positive_score += 1
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
         positive_reasons.append(f"오늘의 {daily_elem_kr} 기운이 재물 흐름을 돕는 날입니다")
     
