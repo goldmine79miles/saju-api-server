@@ -2472,14 +2472,14 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
         positive_score += 1
         day_elem_kr = elem_kr_map.get(day_elem, day_elem)
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
-        positive_reasons.append(f"타고난 {day_elem_kr} 기운이 오늘 {daily_animal}의 {daily_elem_kr} 기운과 만나 성과가 재물로 이어지기 좋은 날입니다")
+        positive_reasons.append(f"타고난 {day_elem_kr} 기운이 오늘 일진인 {daily_animal}의 {daily_elem_kr} 기운과 만나 성과가 재물로 이어지기 좋은 날입니다")
     
     # 2. 재성 강함 (일간이 극하는 오행)
     controls = {"목": "토", "화": "금", "토": "수", "금": "목", "수": "화"}
     if controls.get(day_elem) == daily_elem:
         positive_score += 1
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
-        positive_reasons.append(f"오늘 {daily_animal}{_josa_i(daily_animal)} 가져오는 {daily_elem_kr} 기운이 재물로 작용하면서 수입 흐름이 늘어날 수 있어요")
+        positive_reasons.append(f"오늘 일진인 {daily_animal}의 {daily_elem_kr} 기운이 재물로 작용하면서 수입 흐름이 늘어날 수 있어요")
     
     # 3. 천간생 (일간이 생하는 오행의 오행)
     if generates.get(generates.get(day_elem)) == daily_elem:
@@ -2491,7 +2491,7 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
     if day_elem == daily_elem:
         negative_score += 1
         elem_kr = elem_kr_map.get(day_elem, day_elem)
-        negative_reasons.append(f"오늘 {daily_animal}의 {elem_kr} 기운이 타고난 기운과 겹치면서 재물이 분산될 수 있습니다")
+        negative_reasons.append(f"오늘 일진인 {daily_animal}의 {elem_kr} 기운이 타고난 기운과 겹치면서 재물이 분산될 수 있습니다")
     
     # 5. 지지충으로 재물 파괴
     EARTHLY_BRANCH_CLASH = {
@@ -2502,7 +2502,7 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
         if EARTHLY_BRANCH_CLASH.get(daily_branch) == origin_br:
             negative_score += 1
             origin_animal = BRANCH_ANIMAL_KR.get(origin_br, "")
-            negative_reasons.append(f"오늘 {daily_animal}의 기운이 원국 속 {origin_animal} 기운과 충돌하면서 예상치 못한 지출이 생기기 쉽습니다")
+            negative_reasons.append(f"오늘 일진인 {daily_animal}의 기운이 원국 속 {origin_animal} 기운과 충돌하면서 예상치 못한 지출이 생기기 쉽습니다")
             break
     
     # 6. 관성 과다 (일간을 극하는 오행)
@@ -2510,7 +2510,7 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
     if controlled_by.get(day_elem) == daily_elem:
         negative_score += 1
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
-        negative_reasons.append(f"오늘 {daily_animal}{_josa_eun(daily_animal)} {daily_elem_kr} 기운이 강하게 눌러오면서 재물 압박을 느낄 수 있습니다")
+        negative_reasons.append(f"오늘 일진인 {daily_animal}의 {daily_elem_kr} 기운이 강하게 눌러오면서 재물 압박을 느낄 수 있습니다")
     
     # 7. 레벨 판정 (연애와 동일 구조)
     if positive_score >= 2 and negative_score == 0:
