@@ -2230,13 +2230,44 @@ def calc_daily_level(chart, day_pillar):
     if branch_score > 0 and not chung_branches:
         positive_reasons.append(f"오늘 {animal_name}의 기운이 원국 지지와 조화롭게 어우러져 안정감을 줍니다")
     
+    # 마지막 문장 배리에이션 (날짜 기반 선택)
+    day_num = day_pillar.get("branch", "子")
+    branch_idx = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"].index(day_num) if day_num in ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"] else 0
+    
+    good_endings = [
+        "새로운 시도나 중요한 약속을 잡기에 길한 날입니다.",
+        "평소 미뤄왔던 일을 추진하기 좋은 길한 날입니다.",
+        "사람을 만나거나 계약을 진행하기에 길한 날입니다.",
+        "자신감을 갖고 적극적으로 움직여도 좋은 길한 날입니다.",
+        "결단력이 빛을 발하는 길한 날입니다.",
+        "일과 관계 모두 순조롭게 풀리기 쉬운 길한 날입니다.",
+    ]
+    
+    bad_endings_chung = [
+        "중요한 결정은 하루 미루고 차분하게 보내세요.",
+        "대인관계에서 오해가 생기기 쉬우니 말을 아끼세요.",
+        "급한 일이 아니라면 내일로 넘기는 것이 현명합니다.",
+        "컨디션 관리에 신경 쓰고 무리하지 마세요.",
+        "예민해지기 쉬운 날이니 한 발짝 물러서 보세요.",
+        "서두르지 말고 한 템포 쉬어가는 것이 좋습니다.",
+    ]
+    
+    bad_endings_normal = [
+        "무리한 일정이나 큰 결정은 피하고 신중하게 대응하세요.",
+        "평소보다 보수적으로 움직이는 것이 유리합니다.",
+        "에너지를 아끼고 내일을 준비하는 하루로 보내세요.",
+        "감정적인 판단보다 논리적으로 접근하는 것이 좋습니다.",
+        "작은 일에 집중하고 큰 그림은 내일 다시 보세요.",
+        "조용히 자신을 돌아보는 시간으로 활용하세요.",
+    ]
+    
     # 3. 길일/주의 결과에 따라 설명 조합
     if level == "길일":
         if positive_reasons:
             sentences.append(" ".join(positive_reasons) + ".")
         else:
             sentences.append(f"{ganji_name}의 기운이 원국과 좋은 흐름을 만들어 여러 방면에서 순조로운 날입니다.")
-        sentences.append("적극적으로 움직여도 좋은 길한 날입니다.")
+        sentences.append(good_endings[branch_idx % len(good_endings)])
     
     elif level == "주의":
         if negative_reasons:
@@ -2244,9 +2275,9 @@ def calc_daily_level(chart, day_pillar):
         else:
             sentences.append(f"{ganji_name}의 기운이 원국과 어긋나면서 흐름이 불안정한 날입니다.")
         if chung_branches:
-            sentences.append("중요한 결정은 하루 미루고 차분하게 보내세요.")
+            sentences.append(bad_endings_chung[branch_idx % len(bad_endings_chung)])
         else:
-            sentences.append("무리한 일정이나 큰 결정은 피하고 신중하게 대응하세요.")
+            sentences.append(bad_endings_normal[branch_idx % len(bad_endings_normal)])
     
     else:  # 보통
         if positive_reasons and negative_reasons:
@@ -2491,6 +2522,28 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
     else:
         level = 1  # 관망
     
+    # 마지막 문장 배리에이션
+    branch_list = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
+    b_idx = branch_list.index(daily_branch) if daily_branch in branch_list else 0
+    
+    money_good_endings = [
+        "재테크나 투자 계획을 세우기 좋은 날입니다",
+        "평소 눈여겨봤던 재물 기회를 잡아보세요",
+        "수입과 관련된 새로운 시도를 해볼 만한 날입니다",
+        "재물 흐름이 순조로우니 자신 있게 움직여 보세요",
+        "저축이나 자산 관리에 힘을 실어도 좋은 날입니다",
+        "기다려온 재물 기회가 열리기 좋은 타이밍입니다",
+    ]
+    
+    money_bad_endings = [
+        "큰 지출이나 투자는 미루는 것이 좋습니다",
+        "충동적인 소비를 경계하고 지갑을 단단히 하세요",
+        "오늘은 돈 관련 결정을 내일로 미루는 것이 현명합니다",
+        "예상치 못한 지출에 대비해 여유 자금을 확보해 두세요",
+        "재물보다 에너지 관리에 집중하는 것이 나은 날입니다",
+        "보수적으로 지출을 관리하고 큰 계약은 피하세요",
+    ]
+    
     # 8. 메시지 조합
     message_parts = []
     if level == 2:
@@ -2498,13 +2551,13 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
             message_parts.extend(positive_reasons)
         else:
             message_parts.append("전반적으로 재물운이 좋은 흐름을 타는 날입니다")
-        message_parts.append("재테크나 투자 계획을 세우기 좋은 날입니다")
+        message_parts.append(money_good_endings[b_idx % len(money_good_endings)])
     elif level == 0:
         if negative_reasons:
             message_parts.extend(negative_reasons)
         else:
             message_parts.append("재물에 긴장감이 있는 날입니다")
-        message_parts.append("큰 지출이나 투자는 미루는 것이 좋습니다")
+        message_parts.append(money_bad_endings[b_idx % len(money_bad_endings)])
     else:
         if positive_reasons and negative_reasons:
             message_parts.extend(positive_reasons[:1])
