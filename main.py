@@ -2077,9 +2077,9 @@ def branch_relation_score(day_branch, origin_branches):
 
 def calc_daily_level(chart, day_pillar):
     """일진 레벨과 이유를 계산하여 반환"""
-    # 시간모름 보정: 시주 없으면 지지 3개뿐 → 충 판정 감소 → 기본점수 하향
+    # 기본점수: 보통~신중 사이에서 시작 → 좋은 날은 귀하게
     branches = chart.get("branches", [])
-    score = 42 if len(branches) <= 3 else 50
+    score = 37 if len(branches) <= 3 else 43
     reasons = []
 
     # 십성 점수 계산
@@ -2088,7 +2088,7 @@ def calc_daily_level(chart, day_pillar):
     try:
         ten = get_ten_god(chart["day_stem"], day_pillar["stem"])
         ten_score = TEN_SCORE.get(ten, 0)
-        score += ten_score * 2  # 가중치 3→2 (길일 과다 방지)
+        score += ten_score * 2
     except Exception:
         pass
 
@@ -2098,7 +2098,7 @@ def calc_daily_level(chart, day_pillar):
     try:
         elem = STEM_ELEMENT_MAP.get(day_pillar["stem"])
         elem_score = elem_balance_score(elem, chart.get("elements"))
-        score += elem_score * 2  # 가중치 3→2
+        score += elem_score * 2
     except Exception:
         pass
 
@@ -2111,18 +2111,18 @@ def calc_daily_level(chart, day_pillar):
             if BRANCH_CHUNG.get(day_branch) == b and b not in chung_branches:
                 chung_branches.append(b)
         branch_score = branch_relation_score(day_branch, branches)
-        score += branch_score * 3  # 지지 충돌은 가중치 유지
+        score += branch_score * 3
     except Exception:
         pass
 
     # 레벨 결정
-    if score >= 78:
+    if score >= 80:
         level = "길일"
     elif score >= 60:
         level = "양호"
-    elif score >= 40:
+    elif score >= 32:
         level = "보통"
-    elif score >= 28:
+    elif score >= 14:
         level = "신중"
     else:
         level = "주의"
@@ -2357,11 +2357,13 @@ def calculate_love_day(day_stem: str, day_branch: str, daily_stem: str, daily_br
         else:
             negative_reasons.append(f"타고난 성향과 오늘의 {elem_kr} 기운이 겹치면서 경쟁 상황이 생기기 쉬운 날입니다")
     
-    # 6. 레벨 판정 (충만은 원래대로, 경계는 적당히)
-    if positive_score >= 2 and negative_score == 0:
-        level = 2  # 충만
+    # 6. 레벨 판정 (좋은 날은 귀하게, 나쁜 날은 적당히)
+    if positive_score >= 3 and negative_score == 0:
+        level = 2  # 충만 (긍정 3개 모두 + 부정 0 = 매우 귀한 날)
+    elif negative_score >= 1 and positive_score == 0:
+        level = 0  # 경계 (부정만 있으면 경계)
     elif negative_score >= 2:
-        level = 0  # 경계 (부정 2개 이상이면 긍정 있어도 경계)
+        level = 0  # 경계 (부정 2개 이상이면 무조건 경계)
     else:
         level = 1  # 탐색
     
@@ -2462,11 +2464,13 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
         negative_reasons.append(f"오늘의 {daily_elem_kr} 기운이 강하게 작용하면서 재물 압박을 느낄 수 있습니다")
     
-    # 5. 레벨 판정 (상승은 원래대로, 손해는 적당히)
-    if positive_score >= 2 and negative_score == 0:
-        level = 2  # 상승
+    # 5. 레벨 판정 (좋은 날은 귀하게, 나쁜 날은 적당히)
+    if positive_score >= 3 and negative_score == 0:
+        level = 2  # 상승 (긍정 3개 모두 + 부정 0 = 매우 귀한 날)
+    elif negative_score >= 1 and positive_score == 0:
+        level = 0  # 손해 (부정만 있으면 손해)
     elif negative_score >= 2:
-        level = 0  # 손해 (부정 2개 이상이면 긍정 있어도 손해)
+        level = 0  # 손해 (부정 2개 이상이면 무조건 손해)
     else:
         level = 1  # 관망
     
