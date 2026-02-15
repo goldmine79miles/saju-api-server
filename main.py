@@ -2115,9 +2115,9 @@ def calc_daily_level(chart, day_pillar):
         pass
 
     # 레벨 결정
-    if score >= 84:
+    if score >= 74:
         level = "길일"
-    elif score >= 62:
+    elif score >= 58:
         level = "양호"
     elif score >= 34:
         level = "보통"
@@ -2466,10 +2466,8 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
     # 5. 레벨 판정
     if positive_score >= 2 and negative_score == 0:
         level = 2  # 상승
-    elif negative_score >= 1 and positive_score == 0:
-        level = 0  # 손해
-    elif negative_score >= 2:
-        level = 0  # 손해
+    elif negative_score >= 2 and positive_score == 0:
+        level = 0  # 손해 (부정 2개 이상 + 긍정 0)
     else:
         level = 1  # 관망
     
