@@ -2110,25 +2110,21 @@ def calc_daily_level(chart, day_pillar):
     chung_branches = []
     try:
         day_branch = day_pillar["branch"]
-        for b in branches:
+        for b in chart.get("branches", []):
             if BRANCH_CHUNG.get(day_branch) == b and b not in chung_branches:
                 chung_branches.append(b)
-        branch_score = branch_relation_score(day_branch, branches)
+        branch_score = branch_relation_score(day_branch, chart.get("branches", []))
         score += branch_score * 3
     except Exception:
         pass
 
-    # 레벨 결정 (원래 길일≥80에서 8~9개 → 기준 올려서 2~3개로)
-    if score >= 92:
+    # 3단계 레벨 결정 (길일 < 주의)
+    if score >= 90:
         level = "길일"
-    elif score >= 68:
-        level = "양호"
-    elif score >= 42:
-        level = "보통"
-    elif score >= 28:
-        level = "신중"
-    else:
+    elif score < 24:
         level = "주의"
+    else:
+        level = "보통"
 
 
 
@@ -2435,8 +2431,9 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
         positive_reasons.append(f"오늘의 {daily_elem_kr} 기운이 재물로 작용하면서 수입 흐름이 자연스럽게 늘어날 수 있어요")
     
-    # 3. 천간생 (일간이 생하는 오행) - 점수 기여 없이 이유만
+    # 3. 천간생 (일간이 생하는 오행) - 약한 긍정
     if generates.get(generates.get(day_elem)) == daily_elem:
+        positive_score += 0.5
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
         positive_reasons.append(f"오늘의 {daily_elem_kr} 기운이 재물 흐름을 돕는 날입니다")
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
