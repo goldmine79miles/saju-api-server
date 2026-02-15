@@ -2077,9 +2077,13 @@ def branch_relation_score(day_branch, origin_branches):
 
 def calc_daily_level(chart, day_pillar):
     """일진 레벨과 이유를 계산하여 반환"""
-    branches = chart.get("branches", [])
-    score = 38 if len(branches) <= 3 else 44
+    score = 50
     reasons = []
+
+    # 시간모름 보정
+    branches = chart.get("branches", [])
+    if len(branches) <= 3:
+        score -= 8
 
     # 십성 점수 계산
     ten = None
@@ -2097,7 +2101,7 @@ def calc_daily_level(chart, day_pillar):
     try:
         elem = STEM_ELEMENT_MAP.get(day_pillar["stem"])
         elem_score = elem_balance_score(elem, chart.get("elements"))
-        score += elem_score * 2
+        score += elem_score * 3
     except Exception:
         pass
 
@@ -2114,14 +2118,14 @@ def calc_daily_level(chart, day_pillar):
     except Exception:
         pass
 
-    # 레벨 결정
-    if score >= 74:
+    # 레벨 결정 (원래 길일≥80에서 8~9개 → 기준 올려서 2~3개로)
+    if score >= 92:
         level = "길일"
-    elif score >= 58:
+    elif score >= 68:
         level = "양호"
-    elif score >= 34:
+    elif score >= 42:
         level = "보통"
-    elif score >= 16:
+    elif score >= 28:
         level = "신중"
     else:
         level = "주의"
@@ -2431,9 +2435,10 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
         positive_reasons.append(f"오늘의 {daily_elem_kr} 기운이 재물로 작용하면서 수입 흐름이 자연스럽게 늘어날 수 있어요")
     
-    # 3. 천간생 (일간이 생하는 오행) - 새로 추가
+    # 3. 천간생 (일간이 생하는 오행) - 점수 기여 없이 이유만
     if generates.get(generates.get(day_elem)) == daily_elem:
-        positive_score += 1
+        daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
+        positive_reasons.append(f"오늘의 {daily_elem_kr} 기운이 재물 흐름을 돕는 날입니다")
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
         positive_reasons.append(f"오늘의 {daily_elem_kr} 기운이 재물 흐름을 돕는 날입니다")
     
@@ -2466,8 +2471,10 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
     # 5. 레벨 판정
     if positive_score >= 2 and negative_score == 0:
         level = 2  # 상승
-    elif negative_score >= 2 and positive_score == 0:
-        level = 0  # 손해 (부정 2개 이상 + 긍정 0)
+    elif negative_score >= 1 and positive_score == 0:
+        level = 0  # 손해
+    elif negative_score >= 2:
+        level = 0  # 손해
     else:
         level = 1  # 관망
     
