@@ -2502,7 +2502,7 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
         if EARTHLY_BRANCH_CLASH.get(daily_branch) == origin_br:
             negative_score += 1
             origin_animal = BRANCH_ANIMAL_KR.get(origin_br, "")
-            negative_reasons.append(f"오늘 일진인 {daily_animal}에 기운이 원국 속 {origin_animal} 기운과 충돌하면서 예상치 못한 지출이 생기기 쉽습니다")
+            negative_reasons.append(f"오늘 일진인 {daily_animal}의 기운에 원국 속 {origin_animal} 기운이 충돌하면서 예상치 못한 지출이 생기기 쉽습니다")
             break
     
     # 6. 관성 과다 (일간을 극하는 오행)
