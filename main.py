@@ -2119,7 +2119,7 @@ def calc_daily_level(chart, day_pillar):
         pass
 
     # 3단계 레벨 결정
-    if score >= 85:
+    if score >= 80:
         level = "길일"
     elif score < 20:
         level = "주의"
@@ -2413,6 +2413,25 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
     # 일진 동물 이름
     daily_animal = BRANCH_ANIMAL_KR.get(daily_branch, "")
     
+    # 조사 헬퍼
+    def _josa_i(word: str) -> str:
+        """받침 있으면 '이', 없으면 '가'"""
+        if not word:
+            return "이"
+        last = ord(word[-1])
+        if 0xAC00 <= last <= 0xD7A3:
+            return "이" if (last - 0xAC00) % 28 != 0 else "가"
+        return "이"
+    
+    def _josa_eun(word: str) -> str:
+        """받침 있으면 '은', 없으면 '는'"""
+        if not word:
+            return "은"
+        last = ord(word[-1])
+        if 0xAC00 <= last <= 0xD7A3:
+            return "은" if (last - 0xAC00) % 28 != 0 else "는"
+        return "은"
+    
     # 1. 식상생재 (일간→식상→재성 흐름)
     day_elem = STEM_ELEMENT.get(day_stem, "")
     daily_elem = STEM_ELEMENT.get(daily_stem, "")
@@ -2429,7 +2448,7 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
     if controls.get(day_elem) == daily_elem:
         positive_score += 1
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
-        positive_reasons.append(f"오늘 {daily_animal}이 가져오는 {daily_elem_kr} 기운이 재물로 작용하면서 수입 흐름이 늘어날 수 있어요")
+        positive_reasons.append(f"오늘 {daily_animal}{_josa_i(daily_animal)} 가져오는 {daily_elem_kr} 기운이 재물로 작용하면서 수입 흐름이 늘어날 수 있어요")
     
     # 3. 천간생 (일간이 생하는 오행의 오행)
     if generates.get(generates.get(day_elem)) == daily_elem:
@@ -2441,7 +2460,7 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
     if day_elem == daily_elem:
         negative_score += 1
         elem_kr = elem_kr_map.get(day_elem, day_elem)
-        negative_reasons.append(f"오늘 {daily_animal}의 {elem_kr} 기운이 타고난 기운과 겹치면서 재물 경쟁이나 분산 가능성이 있습니다")
+        negative_reasons.append(f"오늘 {daily_animal}의 {elem_kr} 기운이 타고난 기운과 겹치면서 재물이 분산될 수 있습니다")
     
     # 5. 지지충으로 재물 파괴
     EARTHLY_BRANCH_CLASH = {
@@ -2460,7 +2479,7 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
     if controlled_by.get(day_elem) == daily_elem:
         negative_score += 1
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
-        negative_reasons.append(f"오늘 {daily_animal}의 {daily_elem_kr} 기운이 강하게 눌러오면서 재물 압박을 느낄 수 있습니다")
+        negative_reasons.append(f"오늘 {daily_animal}{_josa_eun(daily_animal)} {daily_elem_kr} 기운이 강하게 눌러오면서 재물 압박을 느낄 수 있습니다")
     
     # 7. 레벨 판정 (연애와 동일 구조)
     if positive_score >= 2 and negative_score == 0:
