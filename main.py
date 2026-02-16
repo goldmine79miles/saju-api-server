@@ -2080,10 +2080,11 @@ def calc_daily_level(chart, day_pillar):
     score = 50
     reasons = []
 
-    # 시간모름 보정
+    # 시간모름 보정 (시주 없어도 큰 차이 없도록 최소 감점)
     branches = chart.get("branches", [])
-    if len(branches) <= 3:
-        score -= 8
+    no_hour = len(branches) <= 3
+    if no_hour:
+        score -= 3
 
     # 십성 점수 계산
     ten = None
@@ -2095,13 +2096,14 @@ def calc_daily_level(chart, day_pillar):
     except Exception:
         pass
 
-    # 오행 균형 점수 계산
+    # 오행 균형 점수 계산 (시간모름이면 비율 왜곡되므로 중립 처리)
     elem = None
     elem_score = 0
     try:
-        elem = STEM_ELEMENT_MAP.get(day_pillar["stem"])
-        elem_score = elem_balance_score(elem, chart.get("elements"))
-        score += elem_score * 3
+        if not no_hour:
+            elem = STEM_ELEMENT_MAP.get(day_pillar["stem"])
+            elem_score = elem_balance_score(elem, chart.get("elements"))
+            score += elem_score * 3
     except Exception:
         pass
 
