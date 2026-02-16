@@ -2080,11 +2080,9 @@ def calc_daily_level(chart, day_pillar):
     score = 50
     reasons = []
 
-    # 시간모름 보정 (시주 없어도 큰 차이 없도록 최소 감점)
+    # 시간모름 판별 (오행 비율 왜곡 방지용)
     branches = chart.get("branches", [])
     no_hour = len(branches) <= 3
-    if no_hour:
-        score -= 3
 
     # 십성 점수 계산
     ten = None
@@ -2121,9 +2119,9 @@ def calc_daily_level(chart, day_pillar):
         pass
 
     # 3단계 레벨 결정
-    if score >= 80:
+    if score >= 75:
         level = "길일"
-    elif score < 20:
+    elif score < 30:
         level = "주의"
     else:
         level = "보통"
