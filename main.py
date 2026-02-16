@@ -2077,28 +2077,31 @@ def branch_relation_score(day_branch, origin_branches):
 
 def calc_daily_level(chart, day_pillar):
     """일진 레벨과 이유를 계산하여 반환"""
-    # 시간모름 보정: 시주 없으면 지지 3개뿐 → 충 판정 감소 → 기본점수 하향
-    branches = chart.get("branches", [])
-    score = 42 if len(branches) <= 3 else 50
+    score = 50
     reasons = []
+
+    # 시간모름 판별 (오행 비율 왜곡 방지용)
+    branches = chart.get("branches", [])
+    no_hour = len(branches) <= 3
 
     # 십성 점수 계산
     ten = None
     ten_score = 0
     try:
-        ten = get_ten_god(chart["day_stem"], day_pillar["stem"])
+        ten = ten_god_of_stem(chart["day_stem"], day_pillar["stem"])
         ten_score = TEN_SCORE.get(ten, 0)
-        score += ten_score * 2  # 가중치 3→2 (길일 과다 방지)
+        score += ten_score * 3
     except Exception:
         pass
 
-    # 오행 균형 점수 계산
+    # 오행 균형 점수 계산 (시간모름이면 비율 왜곡되므로 중립 처리)
     elem = None
     elem_score = 0
     try:
-        elem = STEM_ELEMENT_MAP.get(day_pillar["stem"])
-        elem_score = elem_balance_score(elem, chart.get("elements"))
-        score += elem_score * 2  # 가중치 3→2
+        if not no_hour:
+            elem = STEM_ELEMENT_MAP.get(day_pillar["stem"])
+            elem_score = elem_balance_score(elem, chart.get("elements"))
+            score += elem_score * 3
     except Exception:
         pass
 
@@ -2107,25 +2110,21 @@ def calc_daily_level(chart, day_pillar):
     chung_branches = []
     try:
         day_branch = day_pillar["branch"]
-        for b in branches:
+        for b in chart.get("branches", []):
             if BRANCH_CHUNG.get(day_branch) == b and b not in chung_branches:
                 chung_branches.append(b)
-        branch_score = branch_relation_score(day_branch, branches)
-        score += branch_score * 3  # 지지 충돌은 가중치 유지
+        branch_score = branch_relation_score(day_branch, chart.get("branches", []))
+        score += branch_score * 3
     except Exception:
         pass
 
-    # 레벨 결정 (기준 상향 → 길일 줄이고 주의 적당히)
-    if score >= 86:
+    # 3단계 레벨 결정
+    if score >= 75:
         level = "길일"
-    elif score >= 64:
-        level = "양호"
-    elif score >= 40:
-        level = "보통"
-    elif score >= 28:
-        level = "신중"
-    else:
+    elif score < 30:
         level = "주의"
+    else:
+        level = "보통"
 
 
 
@@ -2178,11 +2177,25 @@ def calc_daily_level(chart, day_pillar):
     positive_reasons = []  # 긍정 요소
     negative_reasons = []  # 부정 요소
     
+    # 십성 한글 매핑
+    ten_god_meaning = {
+        "비견": "나와 같은 기운이 힘을 실어주는",
+        "겁재": "경쟁 에너지가 강해지는",
+        "식신": "표현력과 창의력이 빛나는",
+        "상관": "자유롭고 거침없는 에너지가 흐르는",
+        "정재": "안정적인 재물 기운이 들어오는",
+        "편재": "뜻밖의 재물 기회가 열리는",
+        "정관": "책임감과 질서가 강해지는",
+        "편관": "외부 압박과 긴장이 커지는",
+        "정인": "지혜와 배움의 기운이 도는",
+        "편인": "직관과 영감이 살아나는",
+    }
+    
     # 오행 분석
     if elem_score > 0:
-        positive_reasons.append(f"오늘의 {elem_name} 기운이 당신 사주에 부족한 {elem_name} 기운을 채워주어 균형이 좋아집니다")
+        positive_reasons.append(f"오늘의 {elem_name} 기운이 사주에 부족한 부분을 채워주면서 전체 균형이 좋아지는 날입니다")
     elif elem_score < 0:
-        negative_reasons.append(f"당신 사주에 {elem_name} 기운이 이미 강한 편인데 오늘도 {elem_name} 기운이 더해져 과해질 수 있습니다")
+        negative_reasons.append(f"사주에 이미 강한 {elem_name} 기운이 오늘 더 쌓이면서 에너지가 한쪽으로 치우칠 수 있습니다")
     
     # 조사 헬퍼 (받침 유무 판단)
     def _has_batchim(word: str) -> bool:
@@ -2203,56 +2216,70 @@ def calc_daily_level(chart, day_pillar):
     if chung_branches:
         for b in chung_branches:
             b_animal = branch_animal.get(b, b)
-            negative_reasons.append(f"오늘 {animal_name}의 기운은 사주에 있는 {b_animal}의 기운과 충을 이루면서 예상치 못한 변수가 생기기 쉬운 날입니다. 중요한 결정은 하루 미루는 것이 좋습니다")
+            negative_reasons.append(f"오늘 {animal_name}의 기운이 사주 속 {b_animal}의 기운과 정면으로 부딪히면서 예상치 못한 변수가 생기기 쉽습니다")
     
-    # 십성 분석 (ten_score 활용)
-    if ten_score >= 6:
-        positive_reasons.append("일진의 십성이 당신에게 유리하게 작용합니다")
-    elif ten_score <= -6:
-        negative_reasons.append("일진의 십성이 긴장감을 주는 날입니다")
+    # 십성 분석 (구체적 텍스트)
+    if ten and ten in ten_god_meaning:
+        meaning = ten_god_meaning[ten]
+        if ten_score >= 6:
+            positive_reasons.append(f"오늘은 {meaning} 날로, {ganji_name}의 흐름이 당신에게 유리하게 작용합니다")
+        elif ten_score <= -6:
+            negative_reasons.append(f"오늘은 {meaning} 날로, 평소보다 신중하게 움직이는 것이 좋습니다")
     
     # 지지 합 (branch_score가 양수인데 충돌이 아닌 경우)
     if branch_score > 0 and not chung_branches:
-        positive_reasons.append("일진 지지가 원국과 조화롭게 어우러집니다")
+        positive_reasons.append(f"오늘 {animal_name}의 기운이 원국 지지와 조화롭게 어우러져 안정감을 줍니다")
+    
+    # 마지막 문장 배리에이션 (날짜 기반 선택)
+    day_num = day_pillar.get("branch", "子")
+    branch_idx = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"].index(day_num) if day_num in ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"] else 0
+    
+    good_endings = [
+        "새로운 시도나 중요한 약속을 잡기에 길한 날입니다.",
+        "평소 미뤄왔던 일을 추진하기 좋은 길한 날입니다.",
+        "사람을 만나거나 계약을 진행하기에 길한 날입니다.",
+        "자신감을 갖고 적극적으로 움직여도 좋은 길한 날입니다.",
+        "결단력이 빛을 발하는 길한 날입니다.",
+        "일과 관계 모두 순조롭게 풀리기 쉬운 길한 날입니다.",
+    ]
+    
+    bad_endings_chung = [
+        "중요한 결정은 하루 미루고 차분하게 보내세요.",
+        "대인관계에서 오해가 생기기 쉬우니 말을 아끼세요.",
+        "급한 일이 아니라면 내일로 넘기는 것이 현명합니다.",
+        "컨디션 관리에 신경 쓰고 무리하지 마세요.",
+        "예민해지기 쉬운 날이니 한 발짝 물러서 보세요.",
+        "서두르지 말고 한 템포 쉬어가는 것이 좋습니다.",
+    ]
+    
+    bad_endings_normal = [
+        "무리한 일정이나 큰 결정은 피하고 신중하게 대응하세요.",
+        "평소보다 보수적으로 움직이는 것이 유리합니다.",
+        "에너지를 아끼고 내일을 준비하는 하루로 보내세요.",
+        "감정적인 판단보다 논리적으로 접근하는 것이 좋습니다.",
+        "작은 일에 집중하고 큰 그림은 내일 다시 보세요.",
+        "조용히 자신을 돌아보는 시간으로 활용하세요.",
+    ]
     
     # 3. 길일/주의 결과에 따라 설명 조합
     if level == "길일":
-        # 이유가 없으면 점수 다시 분석해서 추가
-        if not positive_reasons:
-            if ten_score > 0:
-                positive_reasons.append(f"일진의 십성이 당신에게 유리하게 작용합니다")
-            if elem_score > 0:
-                positive_reasons.append(f"오늘의 {elem_name} 기운이 부족한 {elem_name} 기운을 채워줍니다")
-            if branch_score > 0:
-                positive_reasons.append("일진 지지가 원국과 조화롭게 어우러집니다")
-            # 그래도 없으면 (기본 50점에서 높은 점수)
-            if not positive_reasons:
-                positive_reasons.append(f"일진 {ganji_name}이 전반적으로 원국과 좋은 흐름을 만듭니다")
-        
-        sentences.append(" ".join(positive_reasons) + ".")
-        sentences.append("좋은 기운이 흐르는 길한 날입니다.")
+        if positive_reasons:
+            sentences.append(" ".join(positive_reasons) + ".")
+        else:
+            sentences.append(f"{ganji_name}의 기운이 원국과 좋은 흐름을 만들어 여러 방면에서 순조로운 날입니다.")
+        sentences.append(good_endings[branch_idx % len(good_endings)])
     
     elif level == "주의":
-        # 이유가 없으면 점수 다시 분석해서 추가
-        if not negative_reasons:
-            if ten_score < 0:
-                negative_reasons.append("일진의 십성이 긴장감을 주는 날입니다")
-            if elem_score < 0:
-                negative_reasons.append(f"당신 원국에 {elem_name} 기운이 강한데 오늘도 더해져 과해집니다")
-            if branch_score < 0:
-                negative_reasons.append("일진 지지가 원국과 불편한 관계를 형성합니다")
-            # 그래도 없으면 (기본 50점에서 낮은 점수)
-            if not negative_reasons:
-                negative_reasons.append(f"일진 {ganji_name}이 전반적으로 원국과 약한 흐름을 만듭니다")
-        
-        sentences.append(" ".join(negative_reasons) + ".")
-        if chung_branches:
-            sentences.append("무리하지 말고 차분하게 하루를 보내세요.")
+        if negative_reasons:
+            sentences.append(" ".join(negative_reasons) + ".")
         else:
-            sentences.append("변동이나 긴장 상황에 신중하게 대응하세요.")
+            sentences.append(f"{ganji_name}의 기운이 원국과 어긋나면서 흐름이 불안정한 날입니다.")
+        if chung_branches:
+            sentences.append(bad_endings_chung[branch_idx % len(bad_endings_chung)])
+        else:
+            sentences.append(bad_endings_normal[branch_idx % len(bad_endings_normal)])
     
-    else:  # 양호, 보통, 신중
-        # 긍정/부정 요소가 있으면 둘 다 설명
+    else:  # 보통
         if positive_reasons and negative_reasons:
             sentences.append(" ".join(positive_reasons) + ".")
             sentences.append("다만, " + " ".join(negative_reasons) + ".")
@@ -2357,11 +2384,13 @@ def calculate_love_day(day_stem: str, day_branch: str, daily_stem: str, daily_br
         else:
             negative_reasons.append(f"타고난 성향과 오늘의 {elem_kr} 기운이 겹치면서 경쟁 상황이 생기기 쉬운 날입니다")
     
-    # 6. 레벨 판정 (충만은 엄격, 경계는 적당히)
-    if positive_score >= 3 and negative_score == 0:
-        level = 2  # 충만 (3개 이상 긍정 + 부정 0)
+    # 6. 레벨 판정
+    if positive_score >= 2 and negative_score == 0:
+        level = 2  # 충만
+    elif negative_score >= 1 and positive_score == 0:
+        level = 0  # 경계
     elif negative_score >= 2:
-        level = 0  # 경계 (부정 2개 이상이면 긍정 있어도 경계)
+        level = 0  # 경계
     else:
         level = 1  # 탐색
     
@@ -2412,6 +2441,28 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
     # 오행 한글 매핑
     elem_kr_map = {"목": "나무", "화": "불", "토": "흙", "금": "쇠", "수": "물"}
     
+    # 일진 동물 이름
+    daily_animal = BRANCH_ANIMAL_KR.get(daily_branch, "")
+    
+    # 조사 헬퍼
+    def _josa_i(word: str) -> str:
+        """받침 있으면 '이', 없으면 '가'"""
+        if not word:
+            return "이"
+        last = ord(word[-1])
+        if 0xAC00 <= last <= 0xD7A3:
+            return "이" if (last - 0xAC00) % 28 != 0 else "가"
+        return "이"
+    
+    def _josa_eun(word: str) -> str:
+        """받침 있으면 '은', 없으면 '는'"""
+        if not word:
+            return "은"
+        last = ord(word[-1])
+        if 0xAC00 <= last <= 0xD7A3:
+            return "은" if (last - 0xAC00) % 28 != 0 else "는"
+        return "은"
+    
     # 1. 식상생재 (일간→식상→재성 흐름)
     day_elem = STEM_ELEMENT.get(day_stem, "")
     daily_elem = STEM_ELEMENT.get(daily_stem, "")
@@ -2421,26 +2472,26 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
         positive_score += 1
         day_elem_kr = elem_kr_map.get(day_elem, day_elem)
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
-        positive_reasons.append(f"타고난 {day_elem_kr} 기운이 오늘의 {daily_elem_kr} 기운을 만들어내면서 성과가 재물로 이어지기 좋은 날입니다")
+        positive_reasons.append(f"타고난 {day_elem_kr} 기운이 오늘 일진인 {daily_animal}에 {daily_elem_kr} 기운과 만나 성과가 재물로 이어지기 좋은 날입니다")
     
     # 2. 재성 강함 (일간이 극하는 오행)
     controls = {"목": "토", "화": "금", "토": "수", "금": "목", "수": "화"}
     if controls.get(day_elem) == daily_elem:
         positive_score += 1
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
-        positive_reasons.append(f"오늘의 {daily_elem_kr} 기운이 재물로 작용하면서 수입 흐름이 자연스럽게 늘어날 수 있어요")
+        positive_reasons.append(f"오늘 일진인 {daily_animal}에 {daily_elem_kr} 기운이 실리면서 재물로 작용해 수입 흐름이 늘어날 수 있어요")
     
-    # 3. 천간생 (일간이 생하는 오행) - 새로 추가
+    # 3. 천간생 (일간이 생하는 오행의 오행)
     if generates.get(generates.get(day_elem)) == daily_elem:
         positive_score += 1
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
-        positive_reasons.append(f"오늘의 {daily_elem_kr} 기운이 재물 흐름을 돕는 날입니다")
+        positive_reasons.append(f"오늘 {daily_animal}의 {daily_elem_kr} 기운이 간접적으로 재물 흐름을 돕습니다")
     
     # 4. 비겁탈재 (같은 오행 = 경쟁)
     if day_elem == daily_elem:
         negative_score += 1
         elem_kr = elem_kr_map.get(day_elem, day_elem)
-        negative_reasons.append(f"타고난 {elem_kr} 기운과 오늘의 {elem_kr} 기운이 겹치면서 재물 경쟁이나 분산 가능성이 있습니다")
+        negative_reasons.append(f"오늘 일진인 {daily_animal}에 {elem_kr} 기운이 타고난 기운과 겹치면서 재물이 분산될 수 있습니다")
     
     # 5. 지지충으로 재물 파괴
     EARTHLY_BRANCH_CLASH = {
@@ -2450,40 +2501,63 @@ def calculate_money_day(day_stem: str, day_branch: str, daily_stem: str, daily_b
     for origin_br in origin_branches:
         if EARTHLY_BRANCH_CLASH.get(daily_branch) == origin_br:
             negative_score += 1
-            daily_animal = BRANCH_ANIMAL_KR.get(daily_branch, "")
             origin_animal = BRANCH_ANIMAL_KR.get(origin_br, "")
-            negative_reasons.append(f"오늘의 {daily_animal} 기운이 원국 속 {origin_animal} 기운과 충돌하면서 예상치 못한 지출이 생기기 쉬운 날입니다")
+            negative_reasons.append(f"오늘 일진인 {daily_animal}의 기운에 원국 속 {origin_animal} 기운이 충돌하면서 예상치 못한 지출이 생기기 쉽습니다")
             break
     
-    # 6. 관성 과다 (일간을 극하는 오행) - 새로 추가
+    # 6. 관성 과다 (일간을 극하는 오행)
     controlled_by = {"목": "금", "화": "수", "토": "목", "금": "화", "수": "토"}
     if controlled_by.get(day_elem) == daily_elem:
         negative_score += 1
         daily_elem_kr = elem_kr_map.get(daily_elem, daily_elem)
-        negative_reasons.append(f"오늘의 {daily_elem_kr} 기운이 강하게 작용하면서 재물 압박을 느낄 수 있습니다")
+        negative_reasons.append(f"오늘 일진인 {daily_animal}에 {daily_elem_kr} 기운이 강하게 눌러오면서 재물 압박을 느낄 수 있습니다")
     
-    # 5. 레벨 판정 (상승은 엄격, 손해는 적당히)
-    if positive_score >= 3 and negative_score == 0:
-        level = 2  # 상승 (3개 이상 긍정 + 부정 0)
+    # 7. 레벨 판정 (연애와 동일 구조)
+    if positive_score >= 2 and negative_score == 0:
+        level = 2  # 상승
+    elif negative_score >= 1 and positive_score == 0:
+        level = 0  # 손해
     elif negative_score >= 2:
-        level = 0  # 손해 (부정 2개 이상이면 긍정 있어도 손해)
+        level = 0  # 손해
     else:
         level = 1  # 관망
     
-    # 6. 메시지 조합
+    # 마지막 문장 배리에이션
+    branch_list = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
+    b_idx = branch_list.index(daily_branch) if daily_branch in branch_list else 0
+    
+    money_good_endings = [
+        "재테크나 투자 계획을 세우기 좋은 날입니다",
+        "평소 눈여겨봤던 재물 기회를 잡아보세요",
+        "수입과 관련된 새로운 시도를 해볼 만한 날입니다",
+        "재물 흐름이 순조로우니 자신 있게 움직여 보세요",
+        "저축이나 자산 관리에 힘을 실어도 좋은 날입니다",
+        "기다려온 재물 기회가 열리기 좋은 타이밍입니다",
+    ]
+    
+    money_bad_endings = [
+        "큰 지출이나 투자는 미루는 것이 좋습니다",
+        "충동적인 소비를 경계하고 지갑을 단단히 하세요",
+        "오늘은 돈 관련 결정을 내일로 미루는 것이 현명합니다",
+        "예상치 못한 지출에 대비해 여유 자금을 확보해 두세요",
+        "재물보다 에너지 관리에 집중하는 것이 나은 날입니다",
+        "보수적으로 지출을 관리하고 큰 계약은 피하세요",
+    ]
+    
+    # 8. 메시지 조합
     message_parts = []
     if level == 2:
         if positive_reasons:
             message_parts.extend(positive_reasons)
         else:
             message_parts.append("전반적으로 재물운이 좋은 흐름을 타는 날입니다")
-        message_parts.append("재테크나 투자 계획을 세우기 좋은 날입니다")
+        message_parts.append(money_good_endings[b_idx % len(money_good_endings)])
     elif level == 0:
         if negative_reasons:
             message_parts.extend(negative_reasons)
         else:
             message_parts.append("재물에 긴장감이 있는 날입니다")
-        message_parts.append("큰 지출이나 투자는 미루는 것이 좋습니다")
+        message_parts.append(money_bad_endings[b_idx % len(money_bad_endings)])
     else:
         if positive_reasons and negative_reasons:
             message_parts.extend(positive_reasons[:1])
