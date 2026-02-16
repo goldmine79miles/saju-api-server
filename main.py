@@ -2088,7 +2088,7 @@ def calc_daily_level(chart, day_pillar):
     ten = None
     ten_score = 0
     try:
-        ten = get_ten_god(chart["day_stem"], day_pillar["stem"])
+        ten = ten_god_of_stem(chart["day_stem"], day_pillar["stem"])
         ten_score = TEN_SCORE.get(ten, 0)
         score += ten_score * 3
     except Exception:
