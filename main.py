@@ -4,6 +4,8 @@ from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 import json
 import os
+import threading
+from contextlib import contextmanager
 
 # ==================================================
 # SSOT: Calendar Cache (Solar/Lunar)
@@ -21,7 +23,39 @@ except Exception:
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 print("[SSOT_BOOT]", "_SSOT_DB_OK=", _SSOT_DB_OK, "DATABASE_URL_SET=", bool(DATABASE_URL))
 
+# ⏱ 2026-09-06: 요청마다 psycopg2.connect 를 새로 열고 있었다. Railway→Supabase 핸드셰이크가
+#   호출당 1~3초. 새 생년월일은 조회+저장으로 두 번 열어 그만큼 두 배로 샜다.
+#   실측 결과 처음 보는 양력 12.5초 · 음력 7초 → 인스타 DM 자동응답이 매니챗 외부요청
+#   제한(10초)에 걸려 손님에게 아무 답도 안 나가고 있었다. 풀을 쓴다.
+_SSOT_POOL = None
+_SSOT_POOL_LOCK = threading.Lock()
+_SSOT_POOL_DEAD = False
+
+def _ssot_pool():
+    global _SSOT_POOL, _SSOT_POOL_DEAD
+    if not (_SSOT_DB_OK and DATABASE_URL) or _SSOT_POOL_DEAD:
+        return None
+    if _SSOT_POOL is None:
+        with _SSOT_POOL_LOCK:
+            if _SSOT_POOL is None:
+                try:
+                    from psycopg2 import pool as _pgpool
+                    _SSOT_POOL = _pgpool.ThreadedConnectionPool(
+                        1, 8, DATABASE_URL,
+                        cursor_factory=RealDictCursor,
+                        connect_timeout=5,
+                        keepalives=1, keepalives_idle=30,
+                        keepalives_interval=10, keepalives_count=3,
+                    )
+                    print("[SSOT] POOL READY", flush=True)
+                except Exception as e:
+                    print("[SSOT] POOL FAIL", e, flush=True)
+                    _SSOT_POOL_DEAD = True
+                    _SSOT_POOL = None
+    return _SSOT_POOL
+
 def _ssot_get_conn():
+    """풀을 못 쓸 때만 쓰는 예비 경로 — 예전 동작 그대로."""
     if not (_SSOT_DB_OK and DATABASE_URL):
         return None
     try:
@@ -30,81 +64,97 @@ def _ssot_get_conn():
         print("[SSOT] MISS", flush=True)
         return None
 
+@contextmanager
+def _ssot_conn():
+    """풀에서 꺼내 쓰고 돌려준다. 끊긴 연결은 버린다(Supabase 가 유휴 연결을 닫는다)."""
+    pool = _ssot_pool()
+    if pool is None:
+        conn = _ssot_get_conn()
+        try:
+            yield conn
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        return
+    conn = None
+    bad = False
+    try:
+        conn = pool.getconn()
+        yield conn
+    except Exception:
+        bad = True
+        raise
+    finally:
+        if conn is not None:
+            try:
+                pool.putconn(conn, close=bad or conn.closed != 0)
+            except Exception:
+                pass
+
 def ssot_lookup(birth_dt: date, calendar: str, is_leap_month: bool):
     """Return cached row dict or None."""
-    print("[SSOT] LOOKUP", flush=True)
-    conn = _ssot_get_conn()
-    if not conn:
-        print("[SSOT] MISS", flush=True)
-        return None
     try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                select solar_confirmed, lunar_confirmed, meta_json
-                from public.calendar_ssot
-                where birth = %s and calendar = %s and is_leap_month = %s
-                limit 1
-                """,
-                (birth_dt, (calendar or "").lower(), bool(is_leap_month)),
-            )
-            row = cur.fetchone()
-            if row:
-                print("[SSOT] HIT", flush=True)
-            else:
+        with _ssot_conn() as conn:
+            if not conn:
                 print("[SSOT] MISS", flush=True)
+                return None
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select solar_confirmed, lunar_confirmed, meta_json
+                    from public.calendar_ssot
+                    where birth = %s and calendar = %s and is_leap_month = %s
+                    limit 1
+                    """,
+                    (birth_dt, (calendar or "").lower(), bool(is_leap_month)),
+                )
+                row = cur.fetchone()
+            print("[SSOT] HIT" if row else "[SSOT] MISS", flush=True)
             return row
     except Exception:
         print("[SSOT] MISS", flush=True)
         return None
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
 
 def ssot_upsert(birth_dt: date, calendar: str, is_leap_month: bool, solar_confirmed_dt: date, lunar_meta: dict):
     """Upsert cache row. Non-fatal on any error."""
-    conn = _ssot_get_conn()
-    if not conn:
-        return
     try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                insert into public.calendar_ssot
-                  (birth, calendar, is_leap_month, solar_confirmed, lunar_confirmed, meta_json)
-                values
-                  (%s, %s, %s, %s, %s, %s)
-                on conflict (birth, calendar, is_leap_month)
-                do update set
-                  solar_confirmed = excluded.solar_confirmed,
-                  lunar_confirmed = excluded.lunar_confirmed,
-                  meta_json = excluded.meta_json
-                """,
-                (
-                    birth_dt,
-                    (calendar or "").lower(),
-                    bool(is_leap_month),
-                    solar_confirmed_dt,
-                    json.dumps(lunar_meta, ensure_ascii=False),
-                    json.dumps(
-                        {
-                            "source": "kasi",
-                            "cached_at": (datetime.now(tz=UTC).isoformat() if "UTC" in globals() else datetime.utcnow().isoformat()),
-                        },
-                        ensure_ascii=False,
+        with _ssot_conn() as conn:
+            if not conn:
+                return
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    insert into public.calendar_ssot
+                      (birth, calendar, is_leap_month, solar_confirmed, lunar_confirmed, meta_json)
+                    values
+                      (%s, %s, %s, %s, %s, %s)
+                    on conflict (birth, calendar, is_leap_month)
+                    do update set
+                      solar_confirmed = excluded.solar_confirmed,
+                      lunar_confirmed = excluded.lunar_confirmed,
+                      meta_json = excluded.meta_json
+                    """,
+                    (
+                        birth_dt,
+                        (calendar or "").lower(),
+                        bool(is_leap_month),
+                        solar_confirmed_dt,
+                        json.dumps(lunar_meta, ensure_ascii=False),
+                        json.dumps(
+                            {
+                                "source": "kasi",
+                                "cached_at": (datetime.now(tz=UTC).isoformat() if "UTC" in globals() else datetime.utcnow().isoformat()),
+                            },
+                            ensure_ascii=False,
+                        ),
                     ),
-                ),
-            )
+                )
             print("[SSOT] UPSERT", flush=True)
     except Exception:
         pass
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
 from pathlib import Path
 import requests
 import xml.etree.ElementTree as ET
@@ -1260,6 +1310,9 @@ def calc_saju(
     birth_time: str = Query("unknown"),
     gender: str = Query("unknown"),
     is_leap_month: str = Query("false"),
+    # 음력 표기(KASI 3초)가 필요 없는 호출용 — 인스타 DM 티저만 켠다.
+    # 보고서·표지·메일은 [음력 …] 을 쓰므로 기본값은 반드시 false 다.
+    skip_lunar_label: str = Query("false"),
 ):
     from fastapi import HTTPException
 
@@ -1299,8 +1352,13 @@ def calc_saju(
             else:
                 solar_confirmed = birth_date_in
 
-            lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
-            ssot_upsert(birth_date_in, calendar, is_leap_bool, solar_confirmed, lunar_meta)
+            if str(skip_lunar_label).strip().lower() in ("1", "true", "yes", "y"):
+                # 음력 표기만 건너뛴다. 캐시에는 쓰지 않는다 —
+                # 빈 음력으로 덮으면 나중에 보고서가 그 빈 값을 읽는다.
+                lunar_meta = {}
+            else:
+                lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
+                ssot_upsert(birth_date_in, calendar, is_leap_bool, solar_confirmed, lunar_meta)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"KASI/SSOT calendar conversion failed: {e}")
     # --------------------------------------------------
