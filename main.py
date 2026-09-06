@@ -315,6 +315,20 @@ def _kasi_call(endpoint: str, params: dict) -> dict:
     
     return item
 
+# KASI 가 죽어 있을 때 매 요청 10초씩 버리지 않게 하는 차단기.
+#   표기용 호출에만 쓴다 — 음력 변환(kasi_lun_to_sol)은 없으면 계산이 안 되므로 항상 시도한다.
+_KASI_LABEL_FAIL_AT = 0.0
+_KASI_LABEL_COOLDOWN = 300  # 5분
+
+def _kasi_label_blocked() -> bool:
+    import time as _t
+    return (_t.time() - _KASI_LABEL_FAIL_AT) < _KASI_LABEL_COOLDOWN
+
+def _kasi_label_fail():
+    global _KASI_LABEL_FAIL_AT
+    import time as _t
+    _KASI_LABEL_FAIL_AT = _t.time()
+
 def kasi_sol_to_lun(sol_year: int, sol_month: int, sol_day: int) -> dict:
     """Solar -> Lunar. Returns normalized lunar fields + leap flag."""
     item = _kasi_call("getLunCalInfo", {
@@ -1357,8 +1371,19 @@ def calc_saju(
                 # 빈 음력으로 덮으면 나중에 보고서가 그 빈 값을 읽는다.
                 lunar_meta = {}
             else:
-                lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
-                ssot_upsert(birth_date_in, calendar, is_leap_bool, solar_confirmed, lunar_meta)
+                try:
+                    if _kasi_label_blocked():
+                        raise RuntimeError("KASI 최근 실패 — 잠시 건너뜀")
+                    lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
+                    ssot_upsert(birth_date_in, calendar, is_leap_bool, solar_confirmed, lunar_meta)
+                except Exception as _e:
+                    # ⚠️ 2026-09-06 실장애: KASI(apis.data.go.kr)가 통째로 무응답이 되자
+                    #   양력 주문까지 502 로 죽었다. 양력은 KASI 없이도 사주가 나온다 —
+                    #   못 붙는 건 [음력 …] 표기뿐이다. 표기 하나 때문에 주문을 멈추지 않는다.
+                    #   (음력 입력은 변환이 있어야 계산 자체가 되므로 위에서 그대로 502 로 간다)
+                    print("[KASI] 음력 표기 실패 — 표기 없이 진행:", _e, flush=True)
+                    _kasi_label_fail()
+                    lunar_meta = {}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"KASI/SSOT calendar conversion failed: {e}")
     # --------------------------------------------------
