@@ -329,6 +329,36 @@ def _kasi_label_fail():
     import time as _t
     _KASI_LABEL_FAIL_AT = _t.time()
 
+# ── KASI 가 죽었을 때 쓰는 로컬 변환 (lunar-python) ─────────────────
+#   2026-09-06 실장애: apis.data.go.kr 이 통째로 무응답이 되자 음력 주문이 전부 502.
+#   lunar-python 은 requirements 에 이미 들어 있는데 안 쓰고 있었다.
+#   ⚠️ 평상시엔 쓰지 않는다 — KASI(천문연) 가 한국 음력의 정본이다.
+#      lunar-python 은 중국력 기준(UTC+8)이라 삭 시각이 자정에 걸리는 드문 날에
+#      하루가 어긋날 수 있다. 그래도 멈춤보다는 낫다는 판단.
+#   ⚠️ 로컬로 푼 값은 calendar_ssot 에 저장하지 않는다 — KASI 가 살아나면
+#      정본으로 다시 받아야 한다. 어긋난 값이 영구히 박히면 안 된다.
+def local_lun_to_sol(lun_year: int, lun_month: int, lun_day: int, is_leap_month: bool) -> dict:
+    from lunar_python import Lunar
+    mm = -lun_month if is_leap_month else lun_month
+    sol = Lunar.fromYmd(lun_year, mm, lun_day).getSolar()
+    return {"year": sol.getYear(), "month": sol.getMonth(), "day": sol.getDay()}
+
+def local_sol_to_lun(sol_year: int, sol_month: int, sol_day: int) -> dict:
+    from lunar_python import Solar
+    lun = Solar.fromYmd(sol_year, sol_month, sol_day).getLunar()
+    mm = lun.getMonth()
+    leap = mm < 0
+    mm = abs(mm)
+    label = f"음력 {lun.getYear()}년 " + (f"윤{mm}월 " if leap else f"{mm}월 ") + f"{lun.getDay()}일"
+    return {
+        "year": lun.getYear(),
+        "month": mm,
+        "day": lun.getDay(),
+        "is_leap_month": leap,
+        "label_kr": label,
+        "_raw": {"source": "local"},
+    }
+
 def kasi_sol_to_lun(sol_year: int, sol_month: int, sol_day: int) -> dict:
     """Solar -> Lunar. Returns normalized lunar fields + leap flag."""
     item = _kasi_call("getLunCalInfo", {
@@ -1358,10 +1388,19 @@ def calc_saju(
             solar_confirmed = cached["solar_confirmed"]
             lunar_meta = cached.get("lunar_confirmed") or {}
         else:
+            _kasi_local = False   # 로컬 변환으로 푼 값이면 캐시에 넣지 않는다
             if (calendar or "").lower() == "lunar":
-                sol = kasi_lun_to_sol(
-                    birth_date_in.year, birth_date_in.month, birth_date_in.day, is_leap_bool
-                )
+                try:
+                    sol = kasi_lun_to_sol(
+                        birth_date_in.year, birth_date_in.month, birth_date_in.day, is_leap_bool
+                    )
+                except Exception as _ce:
+                    # KASI 가 죽어도 음력 주문을 멈추지 않는다. 로컬 표로 푼다.
+                    print("[KASI] 음력→양력 실패 — 로컬 변환으로 대체:", _ce, flush=True)
+                    sol = local_lun_to_sol(
+                        birth_date_in.year, birth_date_in.month, birth_date_in.day, is_leap_bool
+                    )
+                    _kasi_local = True
                 solar_confirmed = date(sol["year"], sol["month"], sol["day"])
             else:
                 solar_confirmed = birth_date_in
@@ -1375,15 +1414,20 @@ def calc_saju(
                     if _kasi_label_blocked():
                         raise RuntimeError("KASI 최근 실패 — 잠시 건너뜀")
                     lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
-                    ssot_upsert(birth_date_in, calendar, is_leap_bool, solar_confirmed, lunar_meta)
+                    if not _kasi_local:
+                        ssot_upsert(birth_date_in, calendar, is_leap_bool, solar_confirmed, lunar_meta)
                 except Exception as _e:
                     # ⚠️ 2026-09-06 실장애: KASI(apis.data.go.kr)가 통째로 무응답이 되자
                     #   양력 주문까지 502 로 죽었다. 양력은 KASI 없이도 사주가 나온다 —
                     #   못 붙는 건 [음력 …] 표기뿐이다. 표기 하나 때문에 주문을 멈추지 않는다.
-                    #   (음력 입력은 변환이 있어야 계산 자체가 되므로 위에서 그대로 502 로 간다)
+                    #   음력 입력의 변환도 로컬(lunar-python)로 대체한다 — 위 분기 참고.
                     print("[KASI] 음력 표기 실패 — 표기 없이 진행:", _e, flush=True)
                     _kasi_label_fail()
-                    lunar_meta = {}
+                    try:
+                        lunar_meta = local_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
+                    except Exception as _le:
+                        print("[KASI] 로컬 음력 표기도 실패 — 표기 없이 진행:", _le, flush=True)
+                        lunar_meta = {}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"KASI/SSOT calendar conversion failed: {e}")
     # --------------------------------------------------
