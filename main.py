@@ -316,18 +316,27 @@ def _kasi_call(endpoint: str, params: dict) -> dict:
     return item
 
 # KASI 가 죽어 있을 때 매 요청 10초씩 버리지 않게 하는 차단기.
-#   표기용 호출에만 쓴다 — 음력 변환(kasi_lun_to_sol)은 없으면 계산이 안 되므로 항상 시도한다.
-_KASI_LABEL_FAIL_AT = 0.0
-_KASI_LABEL_COOLDOWN = 300  # 5분
+#   변환·표기 두 호출 모두에 건다. 안 걸면 음력 요청 하나가 10초(변환)+10초(표기)를 버린다
+#   — 2026-09-06 장애 중 실측 24.5초.
+_KASI_FAIL_AT = 0.0
+_KASI_COOLDOWN = 300  # 5분
 
-def _kasi_label_blocked() -> bool:
+def _kasi_blocked() -> bool:
     import time as _t
-    return (_t.time() - _KASI_LABEL_FAIL_AT) < _KASI_LABEL_COOLDOWN
+    return (_t.time() - _KASI_FAIL_AT) < _KASI_COOLDOWN
 
-def _kasi_label_fail():
-    global _KASI_LABEL_FAIL_AT
+def _kasi_note_fail(exc) -> None:
+    """연결이 안 되거나 시간이 초과된 경우에만 차단기를 올린다.
+
+    ⚠️ 날짜 하나가 이상해서 난 오류로 차단기를 올리면, 멀쩡한 KASI 를 5분간
+       안 쓰고 로컬(중국력)로 풀어버린다. 그 5분치가 하루씩 어긋날 수 있다.
+    """
+    global _KASI_FAIL_AT
     import time as _t
-    _KASI_LABEL_FAIL_AT = _t.time()
+    import requests as _rq
+    if isinstance(exc, (_rq.exceptions.Timeout, _rq.exceptions.ConnectionError)):
+        _KASI_FAIL_AT = _t.time()
+        print("[KASI] 연결 불가 — 5분간 건너뛴다", flush=True)
 
 # ── KASI 가 죽었을 때 쓰는 로컬 변환 (lunar-python) ─────────────────
 #   2026-09-06 실장애: apis.data.go.kr 이 통째로 무응답이 되자 음력 주문이 전부 502.
@@ -1391,10 +1400,13 @@ def calc_saju(
             _kasi_local = False   # 로컬 변환으로 푼 값이면 캐시에 넣지 않는다
             if (calendar or "").lower() == "lunar":
                 try:
+                    if _kasi_blocked():
+                        raise RuntimeError("KASI 최근 연결 실패 — 바로 로컬로 간다")
                     sol = kasi_lun_to_sol(
                         birth_date_in.year, birth_date_in.month, birth_date_in.day, is_leap_bool
                     )
                 except Exception as _ce:
+                    _kasi_note_fail(_ce)
                     # KASI 가 죽어도 음력 주문을 멈추지 않는다. 로컬 표로 푼다.
                     print("[KASI] 음력→양력 실패 — 로컬 변환으로 대체:", _ce, flush=True)
                     sol = local_lun_to_sol(
@@ -1411,7 +1423,7 @@ def calc_saju(
                 lunar_meta = {}
             else:
                 try:
-                    if _kasi_label_blocked():
+                    if _kasi_blocked():
                         raise RuntimeError("KASI 최근 실패 — 잠시 건너뜀")
                     lunar_meta = kasi_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
                     if not _kasi_local:
@@ -1422,7 +1434,7 @@ def calc_saju(
                     #   못 붙는 건 [음력 …] 표기뿐이다. 표기 하나 때문에 주문을 멈추지 않는다.
                     #   음력 입력의 변환도 로컬(lunar-python)로 대체한다 — 위 분기 참고.
                     print("[KASI] 음력 표기 실패 — 표기 없이 진행:", _e, flush=True)
-                    _kasi_label_fail()
+                    _kasi_note_fail(_e)
                     try:
                         lunar_meta = local_sol_to_lun(solar_confirmed.year, solar_confirmed.month, solar_confirmed.day)
                     except Exception as _le:
